@@ -1,0 +1,43 @@
+PROMPT: Post-Game Benchmark Results Dashboard
+
+UI mockup for "RiskyRag" - a dual-purpose platform that's both an educational strategy game AND an LLM benchmarking tool. After each game, detailed analytics show how different AI models (GPT-4, Claude, Llama) performed strategically, how well they adhered to temporal constraints (knowledge cutoff dates), and their historical accuracy.
+
+Show the post-game victory screen with comprehensive benchmark data:
+
+Top section: Large golden trophy icon with confetti particle effects (subtle). Main text: "Victory!"
+Subtitle: "Ottoman Empire (GPT-4) has achieved world domination"
+Game duration: "47 turns • 52 minutes • May 1453 scenario"
+
+Main dashboard divided into three sections:
+
+**Left: Game Statistics** (card with icon)
+- Total turns played: 47
+- Territories conquered: 14/14
+- Battles won: 23 (96% success rate)
+- Diplomatic agreements: 7
+- Treaties broken: 2
+
+**Center: Player Performance Comparison** (bar chart visualization)
+Horizontal bars showing territory control over time:
+- Ottoman Empire (GPT-4): 100% - WINNER (deep red)
+- Venice (Human Player): 0% - Eliminated Turn 34 (gold)
+- Byzantine (Claude Sonnet): 0% - Eliminated Turn 28 (purple)
+- Genoa (Llama 3.2): 0% - Eliminated Turn 19 (navy)
+
+**Right: AI Benchmark Metrics** (unique to RiskyRag)
+- Tool call efficiency: 94% ⭐
+- Historical accuracy: 97% ⭐⭐
+- Temporal constraint adherence: 100% ✓
+- Strategic decision quality: Excellent
+- Negotiation success rate: 78%
+- Avg. response latency: 1.2s
+
+Small graph at bottom: "Tool Usage Patterns" showing GPT-4 called query_history 47 times, attack_territory 23 times, send_negotiation 7 times
+
+Bottom action buttons:
+- "Watch Replay" (play icon)
+- "Download Benchmark Data" (download icon)
+- "Share Results" (share icon)
+- "New Game" (prominent, gold button)
+
+Design: Celebration aesthetic with gold and dark navy (#1a1f35), subtle animated confetti, clean data visualizations, modern charts, premium dashboard design. 4K resolution.

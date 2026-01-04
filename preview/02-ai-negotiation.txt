@@ -1,0 +1,23 @@
+PROMPT: AI Negotiation Panel - Diplomacy Interface
+
+UI mockup for "RiskyRag" - a historical strategy game where LLM agents (GPT-4, Claude, Llama) play Risk against humans. Unique twist: AI agents are given temporal RAG constraints, meaning if it's 1453 in-game, they can only reference history up to that date. This creates historically authentic gameplay and tests LLM strategic reasoning.
+
+Show the diplomatic negotiation interface. Split-panel design:
+
+Left panel (30% width): Stylized historical portrait of Sultan Mehmed II with modern UI overlay. Label reads "Ottoman Empire" with blue "GPT-4" AI badge. Green "Online/Active" status indicator. Small historical context text: "Siege of Constantinople, May 1453"
+
+Center panel (40% width): Modern messaging interface with chat bubbles:
+- Ottoman message (dark red bubble, left-aligned): "The walls of Constantinople will fall within days. Join me now, and Venice shall control the Adriatic without interference."
+- Venice response (gold bubble, right-aligned): "Your confidence is noted, Sultan. What guarantees can you provide regarding trade routes?"
+- Ottoman typing indicator with animated dots: "GPT-4 is thinking..."
+
+Right panel (30% width): "Historical Knowledge" sidebar with header "Known Events (≤ May 1453)" showing:
+- "Siege began April 6, 1453"
+- "Mehmed II commands 80,000 troops"
+- "Byzantine defense: ~7,000 soldiers"
+- "Ottoman super-cannons breach walls"
+With notation: "✓ Temporal RAG filter active - no future knowledge"
+
+Bottom: Message input field "Your diplomatic message..." with send button, plus quick actions: "Propose Alliance", "Declare War", "Request Cease-Fire"
+
+Design: Dark theme (#1a1f35), glass-morphism panels with subtle blur, warm gold and crimson accents, clean sans-serif typography, professional UI/UX. 4K resolution.

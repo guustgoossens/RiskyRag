@@ -1,0 +1,16 @@
+PROMPT: Main Game Board - Historical Map View
+
+UI mockup for "RiskyRag" - a multiplayer strategy game where humans play Risk against AI agents (GPT-4, Claude, Llama) that are constrained to historical knowledge. The core mechanic: if the game starts in 1453, the AI only knows history up to that exact date through temporal RAG filtering.
+
+Show the main game board: A stylized medieval world map (circa 1453) in a premium dark theme. Eastern Mediterranean focused, showing territories color-coded by controlling nation: Ottoman Empire (deep crimson/red), Byzantine Empire (royal purple), Venice (warm gold), Genoa (navy blue). Each territory displays white troop count numbers overlaid (e.g., "12", "8", "15").
+
+Top navigation bar: "RiskyRag" logo in elegant serif font (left), large year display "1453" (center) emphasizing the historical date, turn counter "Turn 12/50" (right).
+
+Right sidebar showing player status cards:
+- "Ottoman Empire" with blue AI chip badge reading "GPT-4", 8 territories, 45 troops
+- "Byzantine Empire" with purple AI chip badge "Claude Sonnet", 2 territories, 12 troops (losing)
+- "Venice (You)" marked as human player, 4 territories, 28 troops
+
+Bottom action bar: Clean modern buttons for "Attack", "Move Troops", "Fortify", "End Turn", plus a special "Ask AI History" button unique to this game.
+
+Design aesthetic: Dark navy background (#1a1f35), warm gold accents (#d4af37), muted historical colors for map territories. Modern strategy game UI with subtle parchment/aged paper texture on the map itself. Clean iconography, professional game design, zero clutter. 4K resolution, AAA quality.

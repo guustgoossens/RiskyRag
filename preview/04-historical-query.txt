@@ -1,0 +1,32 @@
+PROMPT: Historical Query Interface - Educational Panel
+
+UI mockup for "RiskyRag" - an educational strategy game where students play Risk alongside AI agents that are historically accurate to the chosen time period. The core educational feature: players can ask AI opponents about their nation's history, culture, and motivations, with answers constrained by temporal RAG (if it's 1453, AI doesn't know about 1454).
+
+Show the educational query interface as a beautiful overlay panel:
+
+Top: Elegant search bar with placeholder text "Ask the Ottoman Empire about their history..." and glowing blue cursor. Small helper text: "AI responses are historically accurate to May 1453"
+
+Below: Beautifully formatted Q&A card with subtle drop shadow and warm lighting:
+
+**Student's Question:**
+"Why are you attacking Constantinople? What makes this city so important?"
+
+**Ottoman Empire AI Response (GPT-4):**
+"Constantinople has stood as the gateway between Europe and Asia for over a thousand years. Whoever controls this city controls the Silk Road, the spice trade, and passage through the Bosporus Strait.
+
+Under Sultan Mehmed II, I have assembled 80,000 soldiers and the world's largest cannons—some firing stones weighing over 600 pounds. The Byzantine Emperor Constantine XI defends with only 7,000 men, though the Theodosian Walls have never fallen to siege.
+
+But this is more than strategy. There is a prophecy: a Muslim ruler will one day conquer the city. I intend to be that ruler, to fulfill what my father and grandfather could not. This is destiny written in history."
+
+**Sources badge at bottom:** "Based on 23 historical sources from ≤ 1453" with small clock icon showing "Temporal filter: ✓ Active"
+
+Right sidebar: "Related Topics" as modern chips/tags:
+- "Mehmed II - The Conqueror"
+- "Fall of Constantinople"
+- "Byzantine defensive architecture"
+- "Ottoman artillery innovation"
+- "Silk Road trade routes"
+
+Bottom buttons: "Ask Another Question" (gold) | "Return to Game" (outline)
+
+Design: Rich color palette with deep purples (#6B46C1) and warm golds (#D4AF37), museum-quality typography (Crimson Text serif for headings, Inter for body), soft shadows, subtle parchment-inspired card backgrounds, warm ambient lighting. Educational/premium design. 4K resolution.
