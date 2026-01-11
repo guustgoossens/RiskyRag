@@ -1,0 +1,289 @@
+@import "tailwindcss";
+
+/* ============================================
+   RISKYRAG DESIGN SYSTEM
+   "The Digital War Room" - Grand Strategy meets AI
+   ============================================ */
+
+/* Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ============================================
+   TAILWIND V4 THEME CONFIGURATION
+   ============================================ */
+
+@theme {
+  /* Primary Brand Colors (The "Canvas") */
+  --color-void-navy: #0F172A;
+  --color-parchment: #F5E6CC;
+  --color-imperial-gold: #D4AF37;
+
+  /* Functional Colors */
+  --color-cognitive-teal: #00FFA3;
+  --color-war-crimson: #C0392B;
+  --color-safe-emerald: #27AE60;
+
+  /* Faction Colors */
+  --color-ottoman: #B91C1C;
+  --color-byzantine: #7E22CE;
+  --color-venetian: #0369A1;
+  --color-neutral: #64748B;
+
+  /* Opacity variants for overlays */
+  --color-void-navy-80: rgba(15, 23, 42, 0.8);
+  --color-void-navy-70: rgba(15, 23, 42, 0.7);
+  --color-cognitive-teal-30: rgba(0, 255, 163, 0.3);
+  --color-cognitive-teal-20: rgba(0, 255, 163, 0.2);
+  --color-cognitive-teal-10: rgba(0, 255, 163, 0.1);
+  --color-imperial-gold-50: rgba(212, 175, 55, 0.5);
+  --color-imperial-gold-30: rgba(212, 175, 55, 0.3);
+  --color-imperial-gold-10: rgba(212, 175, 55, 0.1);
+  --color-war-crimson-30: rgba(192, 57, 43, 0.3);
+  --color-war-crimson-20: rgba(192, 57, 43, 0.2);
+
+  /* Typography */
+  --font-cinzel: "Cinzel", serif;
+  --font-inter: "Inter", sans-serif;
+  --font-jetbrains: "JetBrains Mono", monospace;
+
+  /* Shadows */
+  --shadow-gold-glow: 0 0 20px rgba(212, 175, 55, 0.6);
+  --shadow-teal-glow: 0 0 15px rgba(0, 255, 163, 0.4);
+  --shadow-gold-soft: 0 4px 14px rgba(212, 175, 55, 0.25);
+
+  /* Z-Index Layers */
+  --z-map-base: 0;
+  --z-territories: 10;
+  --z-units: 20;
+  --z-tooltips: 30;
+  --z-sidebars: 40;
+  --z-modals: 50;
+  --z-ai-overlay: 60;
+  --z-notifications: 100;
+
+  /* Animations */
+  --animate-pulse-teal: pulse-teal 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-shake: shake 0.3s ease-in-out 3;
+  --animate-fade-up: fadeUp 1s ease-out forwards;
+}
+
+/* ============================================
+   BASE STYLES
+   ============================================ */
+
+body {
+  @apply m-0 bg-void-navy text-slate-200;
+  font-family: var(--font-inter);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Headings use Cinzel by default */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-cinzel);
+  @apply tracking-wide;
+}
+
+/* Code elements use JetBrains Mono */
+code, pre, .font-mono {
+  font-family: var(--font-jetbrains);
+}
+
+/* ============================================
+   COMPONENT CLASSES
+   ============================================ */
+
+/* AI Panel - Glass Morphism */
+.ai-panel {
+  background: var(--color-void-navy-80);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--color-cognitive-teal-30);
+  border-radius: 8px;
+}
+
+/* Gold Selection State */
+.selected-gold {
+  box-shadow: var(--shadow-gold-glow);
+  border: 2px solid var(--color-imperial-gold);
+}
+
+/* AI Active State */
+.ai-active {
+  box-shadow: var(--shadow-teal-glow);
+  border-color: var(--color-cognitive-teal);
+}
+
+/* Parchment Background with Texture */
+.bg-parchment-texture {
+  background-color: var(--color-parchment);
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.08'/%3E%3C/svg%3E");
+}
+
+/* Temporal Filter Badge */
+.temporal-badge {
+  @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-full;
+  background: var(--color-cognitive-teal-10);
+  border: 1px solid var(--color-cognitive-teal);
+  color: var(--color-cognitive-teal);
+  font-family: var(--font-jetbrains);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.temporal-badge::before {
+  content: '';
+  @apply w-2 h-2 rounded-full animate-pulse;
+  background: var(--color-cognitive-teal);
+}
+
+/* Territory Hover Effect */
+.territory-hover {
+  @apply transition-all duration-200;
+}
+
+.territory-hover:hover {
+  filter: brightness(1.1);
+  stroke: var(--color-imperial-gold);
+  stroke-width: 3px;
+}
+
+/* Board Game Token */
+.game-token {
+  @apply relative w-12 h-12 rounded-full flex items-center justify-center;
+  @apply font-cinzel text-white font-bold;
+  @apply shadow-lg border-2 border-imperial-gold;
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+
+@keyframes pulse-teal {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 8px var(--color-cognitive-teal);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 20px var(--color-cognitive-teal);
+  }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes typewriter {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+/* Utility classes for animations */
+.animate-shake {
+  animation: shake 0.3s ease-in-out 3;
+}
+
+.animate-fade-up {
+  animation: fadeUp 1s ease-out forwards;
+}
+
+.animate-typewriter {
+  overflow: hidden;
+  white-space: nowrap;
+  animation: typewriter 2s steps(40) forwards;
+}
+
+.animate-pulse-teal {
+  animation: pulse-teal 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* AI Thinking Spinner */
+.ai-thinking {
+  @apply w-4 h-4 rounded-full animate-spin;
+  border: 2px solid var(--color-cognitive-teal);
+  border-top-color: transparent;
+}
+
+/* ============================================
+   FACTION TERRITORY FILLS
+   (40% opacity, multiply effect for parchment)
+   ============================================ */
+
+.territory-ottoman {
+  fill: rgba(185, 28, 28, 0.4);
+}
+
+.territory-byzantine {
+  fill: rgba(126, 34, 206, 0.4);
+}
+
+.territory-venetian {
+  fill: rgba(3, 105, 161, 0.4);
+}
+
+.territory-neutral {
+  fill: rgba(100, 116, 139, 0.3);
+}
+
+/* ============================================
+   SCROLLBAR STYLING (War Room aesthetic)
+   ============================================ */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-void-navy);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-imperial-gold-30);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-imperial-gold-50);
+}
+
+/* ============================================
+   UTILITY OVERRIDES
+   ============================================ */
+
+/* Force uppercase tracking for game titles */
+.font-cinzel {
+  font-family: var(--font-cinzel);
+}
+
+.font-jetbrains {
+  font-family: var(--font-jetbrains);
+}
+
+/* Focus ring with gold */
+.focus-gold:focus {
+  @apply outline-none ring-2 ring-offset-2;
+  --tw-ring-color: var(--color-imperial-gold);
+  --tw-ring-offset-color: var(--color-void-navy);
+}
+
+/* Focus ring with teal (for AI elements) */
+.focus-teal:focus {
+  @apply outline-none ring-2 ring-offset-2;
+  --tw-ring-color: var(--color-cognitive-teal);
+  --tw-ring-offset-color: var(--color-void-navy);
+}
