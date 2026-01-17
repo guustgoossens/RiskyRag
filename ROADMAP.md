@@ -202,6 +202,49 @@ uv run riskyrag scrape --source wikipedia --start-year 1400 --end-year 1500
 
 ---
 
+## Phase 6: Sponsor Integrations 🎤
+
+**Goal**: Integrate sponsor technologies for enhanced demo experience.
+
+### OpenRouter (LLM Gateway)
+- [ ] Replace direct OpenAI/Anthropic calls with OpenRouter
+- [ ] Enable model switching mid-game (GPT-4 vs Claude vs Llama)
+- [ ] Track cost per agent turn
+
+### Arize (Observability)
+- [ ] Add tracing for all LLM calls
+- [ ] Log tool usage, token counts, latencies
+- [ ] Create dashboard showing agent decision patterns
+- [ ] Track temporal RAG query accuracy
+
+### ElevenLabs (Voice)
+- [ ] Generate voice for each nation (Ottoman = deep, Byzantine = regal)
+- [ ] Speak agent reasoning aloud during turns
+- [ ] Narrate battle outcomes and conquests
+- [ ] Different voice personas per AI model
+
+### Wispr Flow (Voice Input)
+- [ ] Voice commands for human player ("Attack Constantinople")
+- [ ] Ask historical questions via voice
+- [ ] Negotiation via speech
+
+### Integration Points
+```
+┌─────────────────────────────────────────────────────────┐
+│ FRONTEND                                                │
+│ - Wispr Flow mic input                                  │
+│ - ElevenLabs audio playback                             │
+└──────────────────┬──────────────────────────────────────┘
+                   │
+┌──────────────────▼──────────────────────────────────────┐
+│ CONVEX BACKEND                                          │
+│ - OpenRouter for LLM calls                              │
+│ - Arize tracing on every action                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## Success Criteria
 
 **MVP (Demo-able):**
@@ -210,3 +253,9 @@ uv run riskyrag scrape --source wikipedia --start-year 1400 --end-year 1500
 - [ ] At least 1 LLM agent can play a full game
 - [ ] Human can play against AI in browser
 - [ ] Benchmark results for 2+ models
+
+**Sponsor Bonus:**
+- [ ] OpenRouter powering all LLM calls
+- [ ] Arize dashboard showing agent traces
+- [ ] ElevenLabs voices for AI nations
+- [ ] Wispr Flow voice commands working
