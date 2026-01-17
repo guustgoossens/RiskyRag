@@ -32,26 +32,46 @@ RiskyRag is a multiplayer Risk-style strategy game where AI agents have **tempor
 
 ---
 
-## Phase 2: Core Game Logic
+## Phase 2: Core Game Logic ✅ COMPLETE
 
 **Goal**: Implement the full game loop with turn-based mechanics.
 
-### Tasks
-- [ ] Game creation flow in frontend (create game → select scenario → join)
-- [ ] Player joining and nation selection
-- [ ] Turn execution: reinforce → attack → fortify → end turn
-- [ ] Combat resolution (simplified deterministic for MVP)
-- [ ] Win condition checking (75% territories or eliminate opponents)
-- [ ] Real-time game state updates via Convex subscriptions
-- [ ] Basic game lobby UI
+### Completed
+- [x] Game creation flow in frontend (create game → select scenario → join)
+- [x] Player joining and nation selection
+- [x] Turn execution: reinforce → attack → fortify → end turn
+- [x] Combat resolution (Risk-style dice, better than MVP!)
+- [x] Win condition checking (75% territories OR eliminate opponents)
+- [x] Real-time game state updates via Convex subscriptions
+- [x] Basic game lobby UI
+- [x] Dice count selection UI (player chooses 1-3 dice)
+- [x] Conquest troop movement UI (player chooses troops to move)
+- [x] Phase enforcement (actions restricted to correct phase)
+- [x] Fortify once-per-turn limit
+- [x] Pending conquest blocking (must confirm before phase advance)
 
-### Combat Rules (Simplified)
+### Combat Rules (Risk-style Dice)
 ```
-Attacker wins if: attackingTroops > defenderTroops + 1
-Losses:
-  - Defender: loses all troops
-  - Attacker: loses floor(defenderTroops / 2)
+Attacker: rolls 1-3 dice (needs dice+1 troops, must leave 1 behind)
+Defender: rolls 1-2 dice (based on defending troops)
+
+Resolution:
+  - Compare highest dice → loser loses 1 troop
+  - If both rolled 2+ dice, compare second highest
+  - Defender wins ties
+
+Conquest: attacker MUST move at least dice rolled, at most all-but-1
 ```
+
+### Key Files
+| Component | Path |
+|-----------|------|
+| Phase tracking | `convex/schema.ts` (games table) |
+| Phase mutations | `convex/games.ts` (advancePhase, nextTurn) |
+| Dice combat | `convex/territories.ts` (resolveCombat, attack) |
+| Conquest confirm | `convex/territories.ts` (confirmConquest) |
+| Frontend game | `src/components/gemini/3.tsx` |
+| Frontend lobby | `src/components/gemini/2.tsx` |
 
 ---
 

@@ -11,42 +11,41 @@ function rollDice(count: number): number[] {
 
 // Classic Risk dice combat resolution
 function resolveCombat(
-  attackerTroops: number,
+  attackerDiceCount: number,
   defenderTroops: number
 ): {
   attackerLosses: number;
   defenderLosses: number;
-  attackerDice: number[];
-  defenderDice: number[];
+  attackerDiceRolls: number[];
+  defenderDiceRolls: number[];
 } {
-  // Attacker can roll 1-3 dice (must have at least troops+1 to roll that many)
-  const attackerDiceCount = Math.min(3, attackerTroops);
+  // Attacker rolls the number of dice they declared (1-3)
   // Defender can roll 1-2 dice (must have at least 2 troops to roll 2)
   const defenderDiceCount = Math.min(2, defenderTroops);
 
-  const attackerDice = rollDice(attackerDiceCount);
-  const defenderDice = rollDice(defenderDiceCount);
+  const attackerDiceRolls = rollDice(attackerDiceCount);
+  const defenderDiceRolls = rollDice(defenderDiceCount);
 
   let attackerLosses = 0;
   let defenderLosses = 0;
 
   // Compare highest dice
-  if (attackerDice[0] > defenderDice[0]) {
+  if (attackerDiceRolls[0] > defenderDiceRolls[0]) {
     defenderLosses++;
   } else {
     attackerLosses++; // Defender wins ties
   }
 
   // Compare second highest if both rolled 2+
-  if (attackerDice.length >= 2 && defenderDice.length >= 2) {
-    if (attackerDice[1] > defenderDice[1]) {
+  if (attackerDiceRolls.length >= 2 && defenderDiceRolls.length >= 2) {
+    if (attackerDiceRolls[1] > defenderDiceRolls[1]) {
       defenderLosses++;
     } else {
       attackerLosses++;
     }
   }
 
-  return { attackerLosses, defenderLosses, attackerDice, defenderDice };
+  return { attackerLosses, defenderLosses, attackerDiceRolls, defenderDiceRolls };
 }
 
 // Get all territories for a game
@@ -87,7 +86,7 @@ export const getByName = query({
   },
 });
 
-// Move troops between territories
+// Move troops between territories (FORTIFY phase only, ONE move per turn)
 export const moveTroops = mutation({
   args: {
     gameId: v.id("games"),
@@ -97,6 +96,24 @@ export const moveTroops = mutation({
     count: v.number(),
   },
   handler: async (ctx, args) => {
+    // Get game and check phase
+    const game = await ctx.db.get(args.gameId);
+    if (!game) {
+      throw new Error("Game not found");
+    }
+    if (game.currentPlayerId !== args.playerId) {
+      throw new Error("Not your turn");
+    }
+    if (game.phase !== "fortify") {
+      throw new Error(`Cannot move troops during ${game.phase} phase. Wait for fortify phase.`);
+    }
+    if (game.fortifyUsed) {
+      throw new Error("You already used your one fortify move this turn");
+    }
+    if (game.pendingConquest) {
+      throw new Error("Must confirm conquest before fortifying");
+    }
+
     // Get both territories
     const from = await ctx.db
       .query("territories")
@@ -135,13 +152,15 @@ export const moveTroops = mutation({
     await ctx.db.patch(from._id, { troops: from.troops - args.count });
     await ctx.db.patch(to._id, { troops: to.troops + args.count });
 
+    // Mark fortify as used
+    await ctx.db.patch(args.gameId, { fortifyUsed: true });
+
     // Log the action
-    const game = await ctx.db.get(args.gameId);
     await ctx.db.insert("gameLog", {
       gameId: args.gameId,
-      turn: game?.currentTurn ?? 0,
+      turn: game.currentTurn,
       playerId: args.playerId,
-      action: "move",
+      action: "fortify",
       details: {
         from: args.fromTerritory,
         to: args.toTerritory,
@@ -161,9 +180,23 @@ export const attack = mutation({
     playerId: v.id("players"),
     fromTerritory: v.string(),
     toTerritory: v.string(),
-    attackingTroops: v.number(),
+    diceCount: v.number(), // 1, 2, or 3 dice
   },
   handler: async (ctx, args) => {
+    // Validate dice count
+    if (args.diceCount < 1 || args.diceCount > 3) {
+      throw new Error("Must roll 1, 2, or 3 dice");
+    }
+
+    // Get game and check phase
+    const game = await ctx.db.get(args.gameId);
+    if (!game) {
+      throw new Error("Game not found");
+    }
+    if (game.phase !== "attack") {
+      throw new Error(`Cannot attack during ${game.phase} phase`);
+    }
+
     // Get both territories
     const attacker = await ctx.db
       .query("territories")
@@ -198,15 +231,17 @@ export const attack = mutation({
       throw new Error("Territories are not adjacent");
     }
 
-    // Validate troop count (must leave at least 1 behind)
-    if (args.attackingTroops < 1 || args.attackingTroops >= attacker.troops) {
-      throw new Error("Invalid attacking troop count");
+    // Validate troop count: must have at least diceCount + 1 troops (leave 1 behind)
+    if (attacker.troops < args.diceCount + 1) {
+      throw new Error(
+        `Need at least ${args.diceCount + 1} troops to roll ${args.diceCount} dice (must leave 1 behind)`
+      );
     }
 
     // Dice-based combat
-    const combat = resolveCombat(args.attackingTroops, defender.troops);
+    const combat = resolveCombat(args.diceCount, defender.troops);
 
-    // Apply losses
+    // Apply losses to attacker
     const newAttackerTroops = attacker.troops - combat.attackerLosses;
     const newDefenderTroops = defender.troops - combat.defenderLosses;
 
@@ -214,70 +249,232 @@ export const attack = mutation({
     const conquered = newDefenderTroops <= 0;
 
     if (conquered) {
-      // Attacker conquers the territory
-      const movingTroops = args.attackingTroops - combat.attackerLosses;
+      // Territory conquered! But DON'T auto-move troops yet.
+      // Player must call confirmConquest to choose how many to move.
+      // For now, just mark the conquest as pending.
 
+      // Update attacker troops (losses only, no movement yet)
       await ctx.db.patch(attacker._id, {
-        troops: attacker.troops - args.attackingTroops,
+        troops: newAttackerTroops,
       });
 
+      // Transfer ownership but set troops to 0 (pending confirmation)
+      const previousOwner = defender.ownerId;
       await ctx.db.patch(defender._id, {
         ownerId: args.playerId,
-        troops: Math.max(1, movingTroops),
+        troops: 0, // Will be set when player confirms
       });
 
-      // Check if defender player is eliminated
-      const defenderPlayer = defender.ownerId;
-      if (defenderPlayer) {
-        const remainingTerritories = await ctx.db
-          .query("territories")
-          .withIndex("by_owner", (q) => q.eq("ownerId", defenderPlayer))
-          .collect();
+      // Store pending conquest in game state
+      await ctx.db.patch(args.gameId, {
+        pendingConquest: {
+          fromTerritory: args.fromTerritory,
+          toTerritory: args.toTerritory,
+          minTroops: args.diceCount, // Must move at least the dice count
+          maxTroops: newAttackerTroops - 1, // Can move all but 1
+          previousOwner: previousOwner ?? null,
+        },
+      });
 
-        if (remainingTerritories.length === 0) {
-          await ctx.db.patch(defenderPlayer, { isEliminated: true });
-        }
-      }
+      const result = {
+        success: true,
+        conquered: true,
+        pendingConquest: true,
+        minTroopsToMove: args.diceCount,
+        maxTroopsToMove: newAttackerTroops - 1,
+        attackerLosses: combat.attackerLosses,
+        defenderLosses: combat.defenderLosses,
+        attackerDice: combat.attackerDiceRolls,
+        defenderDice: combat.defenderDiceRolls,
+      };
+
+      // Log the action
+      await ctx.db.insert("gameLog", {
+        gameId: args.gameId,
+        turn: game.currentTurn,
+        playerId: args.playerId,
+        action: "attack",
+        details: {
+          from: args.fromTerritory,
+          to: args.toTerritory,
+          diceCount: args.diceCount,
+          ...result,
+        },
+        timestamp: Date.now(),
+      });
+
+      return result;
     } else {
-      // Defender holds
+      // Defender holds - just apply losses
       await ctx.db.patch(attacker._id, {
         troops: newAttackerTroops,
       });
       await ctx.db.patch(defender._id, {
         troops: newDefenderTroops,
       });
+
+      const result = {
+        success: true,
+        conquered: false,
+        pendingConquest: false,
+        attackerLosses: combat.attackerLosses,
+        defenderLosses: combat.defenderLosses,
+        attackerDice: combat.attackerDiceRolls,
+        defenderDice: combat.defenderDiceRolls,
+        remainingAttackerTroops: newAttackerTroops,
+        remainingDefenderTroops: newDefenderTroops,
+      };
+
+      // Log the action
+      await ctx.db.insert("gameLog", {
+        gameId: args.gameId,
+        turn: game.currentTurn,
+        playerId: args.playerId,
+        action: "attack",
+        details: {
+          from: args.fromTerritory,
+          to: args.toTerritory,
+          diceCount: args.diceCount,
+          ...result,
+        },
+        timestamp: Date.now(),
+      });
+
+      return result;
+    }
+  },
+});
+
+// Confirm conquest - player chooses how many troops to move into conquered territory
+export const confirmConquest = mutation({
+  args: {
+    gameId: v.id("games"),
+    playerId: v.id("players"),
+    troopsToMove: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const game = await ctx.db.get(args.gameId);
+    if (!game) {
+      throw new Error("Game not found");
     }
 
-    const result = {
-      success: true,
-      conquered,
-      attackerLosses: combat.attackerLosses,
-      defenderLosses: combat.defenderLosses,
-      attackerDice: combat.attackerDice,
-      defenderDice: combat.defenderDice,
-    };
+    if (!game.pendingConquest) {
+      throw new Error("No pending conquest to confirm");
+    }
+
+    const pending = game.pendingConquest;
+
+    // Validate troop count
+    if (args.troopsToMove < pending.minTroops) {
+      throw new Error(
+        `Must move at least ${pending.minTroops} troops (the number of dice rolled)`
+      );
+    }
+    if (args.troopsToMove > pending.maxTroops) {
+      throw new Error(
+        `Can move at most ${pending.maxTroops} troops (must leave 1 behind)`
+      );
+    }
+
+    // Get territories
+    const fromTerritory = await ctx.db
+      .query("territories")
+      .withIndex("by_game_name", (q) =>
+        q.eq("gameId", args.gameId).eq("name", pending.fromTerritory)
+      )
+      .first();
+
+    const toTerritory = await ctx.db
+      .query("territories")
+      .withIndex("by_game_name", (q) =>
+        q.eq("gameId", args.gameId).eq("name", pending.toTerritory)
+      )
+      .first();
+
+    if (!fromTerritory || !toTerritory) {
+      throw new Error("Territory not found");
+    }
+
+    // Validate ownership
+    if (fromTerritory.ownerId !== args.playerId) {
+      throw new Error("You don't own the attacking territory");
+    }
+    if (toTerritory.ownerId !== args.playerId) {
+      throw new Error("You don't own the conquered territory");
+    }
+
+    // Move troops
+    await ctx.db.patch(fromTerritory._id, {
+      troops: fromTerritory.troops - args.troopsToMove,
+    });
+    await ctx.db.patch(toTerritory._id, {
+      troops: args.troopsToMove,
+    });
+
+    // Check if previous owner is eliminated
+    if (pending.previousOwner !== null) {
+      const prevOwnerId = pending.previousOwner;
+      const remainingTerritories = await ctx.db
+        .query("territories")
+        .withIndex("by_owner", (q) => q.eq("ownerId", prevOwnerId))
+        .collect();
+
+      if (remainingTerritories.length === 0) {
+        await ctx.db.patch(prevOwnerId, { isEliminated: true });
+      }
+    }
+
+    // Clear pending conquest
+    await ctx.db.patch(args.gameId, {
+      pendingConquest: undefined,
+    });
+
+    // Check for 75% territory domination victory
+    const allTerritories = await ctx.db
+      .query("territories")
+      .withIndex("by_game", (q) => q.eq("gameId", args.gameId))
+      .collect();
+    const totalTerritories = allTerritories.length;
+    const dominationThreshold = Math.ceil(totalTerritories * 0.75);
+    const playerTerritories = allTerritories.filter(
+      (t) => t.ownerId === args.playerId
+    ).length;
+
+    let gameOver = false;
+    if (playerTerritories >= dominationThreshold) {
+      await ctx.db.patch(args.gameId, {
+        status: "finished",
+        winnerId: args.playerId,
+      });
+      gameOver = true;
+    }
 
     // Log the action
-    const game = await ctx.db.get(args.gameId);
     await ctx.db.insert("gameLog", {
       gameId: args.gameId,
-      turn: game?.currentTurn ?? 0,
+      turn: game.currentTurn,
       playerId: args.playerId,
-      action: "attack",
+      action: "confirm_conquest",
       details: {
-        from: args.fromTerritory,
-        to: args.toTerritory,
-        attackingTroops: args.attackingTroops,
-        ...result,
+        from: pending.fromTerritory,
+        to: pending.toTerritory,
+        troopsMoved: args.troopsToMove,
+        gameOver,
       },
       timestamp: Date.now(),
     });
 
-    return result;
+    return {
+      success: true,
+      troopsMoved: args.troopsToMove,
+      gameOver,
+      territoriesControlled: playerTerritories,
+      totalTerritories,
+    };
   },
 });
 
-// Add reinforcements to a territory
+// Add reinforcements to a territory (REINFORCE phase only)
 export const reinforce = mutation({
   args: {
     gameId: v.id("games"),
@@ -286,6 +483,27 @@ export const reinforce = mutation({
     troops: v.number(),
   },
   handler: async (ctx, args) => {
+    // Get game and check phase
+    const game = await ctx.db.get(args.gameId);
+    if (!game) {
+      throw new Error("Game not found");
+    }
+    if (game.currentPlayerId !== args.playerId) {
+      throw new Error("Not your turn");
+    }
+    if (game.phase !== "reinforce") {
+      throw new Error(`Cannot reinforce during ${game.phase} phase`);
+    }
+
+    // Validate troop count
+    if (args.troops < 1) {
+      throw new Error("Must place at least 1 troop");
+    }
+    const remaining = game.reinforcementsRemaining ?? 0;
+    if (args.troops > remaining) {
+      throw new Error(`Only ${remaining} reinforcements remaining`);
+    }
+
     const territory = await ctx.db
       .query("territories")
       .withIndex("by_game_name", (q) =>
@@ -305,21 +523,27 @@ export const reinforce = mutation({
       troops: territory.troops + args.troops,
     });
 
+    // Update remaining reinforcements
+    const newRemaining = remaining - args.troops;
+    await ctx.db.patch(args.gameId, {
+      reinforcementsRemaining: newRemaining,
+    });
+
     // Log the action
-    const game = await ctx.db.get(args.gameId);
     await ctx.db.insert("gameLog", {
       gameId: args.gameId,
-      turn: game?.currentTurn ?? 0,
+      turn: game.currentTurn,
       playerId: args.playerId,
       action: "reinforce",
       details: {
         territory: args.territory,
         troops: args.troops,
+        remaining: newRemaining,
       },
       timestamp: Date.now(),
     });
 
-    return { success: true };
+    return { success: true, remaining: newRemaining };
   },
 });
 

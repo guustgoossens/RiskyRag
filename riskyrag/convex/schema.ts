@@ -17,6 +17,22 @@ export default defineSchema({
     winnerId: v.optional(v.id("players")),
     maxPlayers: v.number(),
     createdAt: v.number(),
+    // Turn phase tracking (Risk rules)
+    phase: v.optional(
+      v.union(v.literal("reinforce"), v.literal("attack"), v.literal("fortify"))
+    ),
+    reinforcementsRemaining: v.optional(v.number()), // Troops left to place
+    fortifyUsed: v.optional(v.boolean()), // Has player used their one fortify move?
+    // Pending conquest - player must confirm troop movement after conquering
+    pendingConquest: v.optional(
+      v.object({
+        fromTerritory: v.string(),
+        toTerritory: v.string(),
+        minTroops: v.number(), // Minimum troops to move (= dice rolled)
+        maxTroops: v.number(), // Maximum troops to move (= troops - 1)
+        previousOwner: v.union(v.id("players"), v.null()),
+      })
+    ),
   })
     .index("by_status", ["status"])
     .index("by_createdAt", ["createdAt"]),

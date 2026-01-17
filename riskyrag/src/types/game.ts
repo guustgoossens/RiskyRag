@@ -2,7 +2,15 @@
 // These will eventually be replaced by Convex-generated types
 
 export type GameStatus = "waiting" | "active" | "finished";
-export type GamePhase = "deploy" | "attack" | "fortify";
+export type GamePhase = "reinforce" | "attack" | "fortify";
+
+export interface PendingConquest {
+  fromTerritory: string;
+  toTerritory: string;
+  minTroops: number;
+  maxTroops: number;
+  previousOwner: string | null;
+}
 
 export interface Game {
   _id: string;
@@ -11,11 +19,15 @@ export interface Game {
   currentDate: number; // Unix timestamp representing game year
   startDate: number;
   scenario: ScenarioId;
-  activePlayerId: string;
-  phase: GamePhase;
+  currentPlayerId?: string;
+  phase?: GamePhase;
+  reinforcementsRemaining?: number;
+  fortifyUsed?: boolean;
+  pendingConquest?: PendingConquest;
+  winnerId?: string;
 }
 
-export type ScenarioId = "1453" | "1776" | "1914";
+export type ScenarioId = "1453" | "1776" | "1861" | "1914";
 
 export interface Scenario {
   id: ScenarioId;

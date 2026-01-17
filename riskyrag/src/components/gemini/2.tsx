@@ -31,6 +31,7 @@ const COLORS = {
 };
 
 // --- Scenario Data (maps to Convex scenarios) ---
+// Only scenarios that are implemented in convex/scenarios.ts
 const SCENARIOS = [
   {
     id: "1453",
@@ -38,7 +39,7 @@ const SCENARIOS = [
     title: "Fall of Constantinople",
     description:
       "The Ottoman Empire besieges the Byzantine capital. The end of the Middle Ages is at hand. Will the walls hold?",
-    imageColor: "bg-red-900", // Placeholder for art
+    imageColor: "bg-red-900",
     factions: [
       {
         id: "ottoman",
@@ -87,75 +88,6 @@ const SCENARIOS = [
       },
     ],
   },
-  {
-    id: "1776",
-    year: 1776,
-    title: "American Revolution",
-    description:
-      "The colonies rise against the Crown. A new nation is forged in fire, but the Empire strikes back with fury.",
-    imageColor: "bg-blue-900",
-    factions: [
-      {
-        id: "britain",
-        name: "Great Britain",
-        color: "#B91C1C",
-        type: "imperial",
-        strength: "Royal Navy, Discipline",
-      },
-      {
-        id: "colonies",
-        name: "Thirteen Colonies",
-        color: "#2563EB",
-        type: "revolutionary",
-        strength: "Guerilla Tactics, Morale",
-      },
-      {
-        id: "france",
-        name: "Kingdom of France",
-        color: "#FCD34D",
-        type: "ally",
-        strength: "Support Fleet, Artillery",
-      },
-    ],
-  },
-  {
-    id: "1914",
-    year: 1914,
-    title: "The Great War",
-    description:
-      "Alliances have been drawn. The powder keg of Europe is sparked. Modern warfare changes the world forever.",
-    imageColor: "bg-stone-800",
-    factions: [
-      {
-        id: "germany",
-        name: "German Empire",
-        color: "#1C1917",
-        type: "central",
-        strength: "Industrial Might, U-Boats",
-      },
-      {
-        id: "france",
-        name: "French Republic",
-        color: "#3B82F6",
-        type: "entente",
-        strength: "Elan Vital, Defensive Lines",
-      },
-      {
-        id: "russia",
-        name: "Russian Empire",
-        color: "#166534",
-        type: "entente",
-        strength: "Manpower, Vast Territory",
-      },
-      {
-        id: "britain",
-        name: "British Empire",
-        color: "#B91C1C",
-        type: "entente",
-        strength: "Expeditionary Force, Navy",
-      },
-    ],
-  },
 ];
 
 const AI_MODELS = [
@@ -189,6 +121,13 @@ const FACTION_TO_NATION: Record<string, string> = {
   // 1861 - American Civil War
   union: "Union",
   confederacy: "Confederacy",
+};
+
+// Map UI model IDs to actual model identifiers
+const MODEL_ID_TO_NAME: Record<string, string> = {
+  gpt4: "gpt-4o",
+  claude: "claude-3-5-sonnet-20241022",
+  llama: "llama-3.2-70b",
 };
 
 export default function Lobby() {
@@ -243,13 +182,23 @@ export default function Lobby() {
         nation: playerNation,
       });
 
-      // 3. Initialize the game (creates AI players and territories)
-      await initializeGame({ gameId });
+      // 3. Build AI model preferences from opponent selections
+      const aiModels: Record<string, string> = {};
+      for (const [factionId, config] of Object.entries(opponents)) {
+        const nationName = FACTION_TO_NATION[factionId];
+        const modelName = MODEL_ID_TO_NAME[config.model] || "gpt-4o";
+        if (nationName) {
+          aiModels[nationName] = modelName;
+        }
+      }
 
-      // 4. Start the game
+      // 4. Initialize the game (creates AI players and territories)
+      await initializeGame({ gameId, aiModels });
+
+      // 5. Start the game
       await startGame({ gameId });
 
-      // 5. Navigate to the game
+      // 6. Navigate to the game
       navigate({ to: "/game/$gameId", params: { gameId } });
     } catch (err) {
       console.error("Failed to create game:", err);
