@@ -64,6 +64,30 @@ const SCENARIOS = [
     ],
   },
   {
+    id: "1861",
+    year: 1861,
+    title: "American Civil War",
+    description:
+      "The Union fights to preserve the nation while the Confederacy battles for independence. Control of the Mississippi will decide the war.",
+    imageColor: "bg-gradient-to-br from-blue-900 to-gray-700",
+    factions: [
+      {
+        id: "union",
+        name: "Union",
+        color: "#1565C0",
+        type: "federal",
+        strength: "Industrial Might, Naval Superiority",
+      },
+      {
+        id: "confederacy",
+        name: "Confederacy",
+        color: "#6B7280",
+        type: "rebel",
+        strength: "Interior Lines, Superior Generals",
+      },
+    ],
+  },
+  {
     id: "1776",
     year: 1776,
     title: "American Revolution",
@@ -157,10 +181,14 @@ const AI_MODELS = [
 
 // Map UI faction IDs to Convex nation names
 const FACTION_TO_NATION: Record<string, string> = {
+  // 1453 - Fall of Constantinople
   ottoman: "Ottoman Empire",
   byzantine: "Byzantine Empire",
   venice: "Venice",
   genoa: "Genoa",
+  // 1861 - American Civil War
+  union: "Union",
+  confederacy: "Confederacy",
 };
 
 export default function Lobby() {
