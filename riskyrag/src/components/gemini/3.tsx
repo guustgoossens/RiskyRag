@@ -15,6 +15,7 @@ import {
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id, Doc } from "../../../convex/_generated/dataModel";
+import { GraphMap } from "../map/GraphMap";
 
 // --- Design System Constants ---
 const COLORS = {
@@ -22,6 +23,8 @@ const COLORS = {
   byzantine: { bg: "fill-purple-900", text: "text-purple-400", border: "stroke-purple-500" },
   venice: { bg: "fill-blue-900", text: "text-blue-400", border: "stroke-blue-500" },
   genoa: { bg: "fill-red-900", text: "text-red-400", border: "stroke-red-500" },
+  union: { bg: "fill-blue-800", text: "text-blue-400", border: "stroke-blue-500" },
+  confederacy: { bg: "fill-gray-700", text: "text-gray-400", border: "stroke-gray-500" },
   neutral: { bg: "fill-slate-800", text: "text-slate-400", border: "stroke-slate-600" },
 };
 
@@ -31,6 +34,8 @@ const NATION_COLORS: Record<string, keyof typeof COLORS> = {
   "Byzantine Empire": "byzantine",
   "Venice": "venice",
   "Genoa": "genoa",
+  "Union": "union",
+  "Confederacy": "confederacy",
 };
 
 // --- Types ---
@@ -343,8 +348,9 @@ export default function RiskyRagGame() {
   }
 
   const { game, players, territories } = gameState;
-  const myPlayer = players.find((p) => p.isHuman);
-  const isMyTurn = myPlayer && game.currentPlayerId === myPlayer._id;
+  // Hotseat mode: control whichever player's turn it is
+  const myPlayer = players.find((p) => p._id === game.currentPlayerId);
+  const isMyTurn = !!myPlayer; // Always true for current player in hotseat mode
 
   // Handle territory click
   const handleTerritoryClick = async (territoryId: Id<"territories">) => {
@@ -555,11 +561,12 @@ export default function RiskyRagGame() {
             </ul>
           </div>
 
-          {!isMyTurn && (
-            <div className="mt-4 p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
-              <div className="flex items-center gap-2 text-yellow-400 text-sm">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Waiting for {currentPlayer?.nation}...</span>
+          {/* Hotseat mode indicator */}
+          {myPlayer && (
+            <div className="mt-4 p-4 bg-emerald-900/20 border border-emerald-500/30 rounded-lg">
+              <div className="flex items-center gap-2 text-emerald-400 text-sm">
+                <User className="w-4 h-4" />
+                <span>Playing as <strong>{myPlayer.nation}</strong></span>
               </div>
             </div>
           )}
@@ -577,13 +584,24 @@ export default function RiskyRagGame() {
           />
 
           <div className="flex-1 flex items-center justify-center p-8">
-            <GameMap
-              territories={territories}
-              players={players}
-              onTerritoryClick={handleTerritoryClick}
-              selectedTerritory={selectedTerritory}
-              attackSource={attackSource}
-            />
+            {game.scenario === "1861" ? (
+              <GraphMap
+                territories={territories}
+                players={players}
+                onTerritoryClick={handleTerritoryClick}
+                selectedTerritory={selectedTerritory}
+                attackSource={attackSource}
+                scenario={game.scenario}
+              />
+            ) : (
+              <GameMap
+                territories={territories}
+                players={players}
+                onTerritoryClick={handleTerritoryClick}
+                selectedTerritory={selectedTerritory}
+                attackSource={attackSource}
+              />
+            )}
           </div>
 
           {/* Bottom Log */}
