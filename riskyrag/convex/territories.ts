@@ -1,5 +1,53 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { REGION_BONUSES, type ScenarioId } from "./scenarios";
+
+// Roll N dice and return sorted descending
+function rollDice(count: number): number[] {
+  return Array.from({ length: count }, () => Math.floor(Math.random() * 6) + 1).sort(
+    (a, b) => b - a
+  );
+}
+
+// Classic Risk dice combat resolution
+function resolveCombat(
+  attackerTroops: number,
+  defenderTroops: number
+): {
+  attackerLosses: number;
+  defenderLosses: number;
+  attackerDice: number[];
+  defenderDice: number[];
+} {
+  // Attacker can roll 1-3 dice (must have at least troops+1 to roll that many)
+  const attackerDiceCount = Math.min(3, attackerTroops);
+  // Defender can roll 1-2 dice (must have at least 2 troops to roll 2)
+  const defenderDiceCount = Math.min(2, defenderTroops);
+
+  const attackerDice = rollDice(attackerDiceCount);
+  const defenderDice = rollDice(defenderDiceCount);
+
+  let attackerLosses = 0;
+  let defenderLosses = 0;
+
+  // Compare highest dice
+  if (attackerDice[0] > defenderDice[0]) {
+    defenderLosses++;
+  } else {
+    attackerLosses++; // Defender wins ties
+  }
+
+  // Compare second highest if both rolled 2+
+  if (attackerDice.length >= 2 && defenderDice.length >= 2) {
+    if (attackerDice[1] > defenderDice[1]) {
+      defenderLosses++;
+    } else {
+      attackerLosses++;
+    }
+  }
+
+  return { attackerLosses, defenderLosses, attackerDice, defenderDice };
+}
 
 // Get all territories for a game
 export const getByGame = query({
@@ -106,7 +154,7 @@ export const moveTroops = mutation({
   },
 });
 
-// Attack a territory (simplified deterministic combat)
+// Attack a territory (dice-based Risk combat)
 export const attack = mutation({
   args: {
     gameId: v.id("games"),
@@ -140,7 +188,7 @@ export const attack = mutation({
       throw new Error("You don't own the attacking territory");
     }
 
-    // Validate defender is enemy
+    // Validate defender is enemy (or neutral)
     if (defender.ownerId === args.playerId) {
       throw new Error("Cannot attack your own territory");
     }
@@ -150,45 +198,33 @@ export const attack = mutation({
       throw new Error("Territories are not adjacent");
     }
 
-    // Validate troop count
+    // Validate troop count (must leave at least 1 behind)
     if (args.attackingTroops < 1 || args.attackingTroops >= attacker.troops) {
       throw new Error("Invalid attacking troop count");
     }
 
-    // Simplified combat: Attacker wins if troops > defender troops + 1
-    // Losses: defender loses all, attacker loses floor(defender troops / 2)
-    const defenderTroops = defender.troops;
-    const attackerWins = args.attackingTroops > defenderTroops + 1;
+    // Dice-based combat
+    const combat = resolveCombat(args.attackingTroops, defender.troops);
 
-    let result: {
-      success: boolean;
-      conquered: boolean;
-      attackerLosses: number;
-      defenderLosses: number;
-    };
+    // Apply losses
+    const newAttackerTroops = attacker.troops - combat.attackerLosses;
+    const newDefenderTroops = defender.troops - combat.defenderLosses;
 
-    if (attackerWins) {
-      // Attacker conquers
-      const attackerLosses = Math.floor(defenderTroops / 2);
-      const remainingAttackers = args.attackingTroops - attackerLosses;
+    // Check for conquest
+    const conquered = newDefenderTroops <= 0;
 
-      // Update attacker territory
+    if (conquered) {
+      // Attacker conquers the territory
+      const movingTroops = args.attackingTroops - combat.attackerLosses;
+
       await ctx.db.patch(attacker._id, {
         troops: attacker.troops - args.attackingTroops,
       });
 
-      // Update defender territory - change owner
       await ctx.db.patch(defender._id, {
         ownerId: args.playerId,
-        troops: remainingAttackers,
+        troops: Math.max(1, movingTroops),
       });
-
-      result = {
-        success: true,
-        conquered: true,
-        attackerLosses,
-        defenderLosses: defenderTroops,
-      };
 
       // Check if defender player is eliminated
       const defenderPlayer = defender.ownerId;
@@ -204,29 +240,22 @@ export const attack = mutation({
       }
     } else {
       // Defender holds
-      const attackerLosses = Math.min(
-        args.attackingTroops,
-        Math.ceil(args.attackingTroops * 0.6)
-      );
-      const defenderLosses = Math.min(
-        defenderTroops - 1,
-        Math.floor(args.attackingTroops * 0.3)
-      );
-
       await ctx.db.patch(attacker._id, {
-        troops: attacker.troops - attackerLosses,
+        troops: newAttackerTroops,
       });
       await ctx.db.patch(defender._id, {
-        troops: defender.troops - defenderLosses,
+        troops: newDefenderTroops,
       });
-
-      result = {
-        success: true,
-        conquered: false,
-        attackerLosses,
-        defenderLosses,
-      };
     }
+
+    const result = {
+      success: true,
+      conquered,
+      attackerLosses: combat.attackerLosses,
+      defenderLosses: combat.defenderLosses,
+      attackerDice: combat.attackerDice,
+      defenderDice: combat.defenderDice,
+    };
 
     // Log the action
     const game = await ctx.db.get(args.gameId);
@@ -294,10 +323,20 @@ export const reinforce = mutation({
   },
 });
 
-// Calculate reinforcements for a player
+// Calculate reinforcements for a player (scenario-aware)
 export const calculateReinforcements = query({
   args: { playerId: v.id("players") },
   handler: async (ctx, args) => {
+    const player = await ctx.db.get(args.playerId);
+    if (!player) {
+      return { base: 3, regionBonus: 0, specialBonus: 0, total: 3, territories: 0 };
+    }
+
+    const game = await ctx.db.get(player.gameId);
+    if (!game) {
+      return { base: 3, regionBonus: 0, specialBonus: 0, total: 3, territories: 0 };
+    }
+
     const territories = await ctx.db
       .query("territories")
       .withIndex("by_owner", (q) => q.eq("ownerId", args.playerId))
@@ -306,29 +345,47 @@ export const calculateReinforcements = query({
     // Base: 1 troop per 3 territories (min 3)
     const base = Math.max(3, Math.floor(territories.length / 3));
 
-    // Bonus for controlling entire regions
-    const regionCounts: Record<string, number> = {};
-    const regionTotals: Record<string, number> = {
-      Balkans: 6,
-      Anatolia: 2,
-      Thrace: 2,
-    };
+    // Get scenario-specific region bonuses
+    const scenarioId = game.scenario as ScenarioId;
+    const scenarioBonuses =
+      scenarioId in REGION_BONUSES
+        ? (REGION_BONUSES[scenarioId as keyof typeof REGION_BONUSES] as Record<
+            string,
+            { total: number; bonus: number }
+          >)
+        : {};
 
+    // Count territories per region
+    const regionCounts: Record<string, number> = {};
     for (const t of territories) {
       regionCounts[t.region] = (regionCounts[t.region] || 0) + 1;
     }
 
+    // Calculate region bonus
     let regionBonus = 0;
     for (const [region, count] of Object.entries(regionCounts)) {
-      if (count === regionTotals[region]) {
-        regionBonus += region === "Anatolia" ? 2 : 3;
+      const regionData = scenarioBonuses[region];
+      if (regionData && count === regionData.total) {
+        regionBonus += regionData.bonus;
+      }
+    }
+
+    // Special bonuses (e.g., Mississippi River for Civil War)
+    let specialBonus = 0;
+    if (scenarioId === "1861") {
+      // Mississippi River bonus: control both mississippi_valley and gulf_coast
+      const hasRiver = territories.some((t) => t.name === "mississippi_valley");
+      const hasGulf = territories.some((t) => t.name === "gulf_coast");
+      if (hasRiver && hasGulf) {
+        specialBonus += 2;
       }
     }
 
     return {
       base,
       regionBonus,
-      total: base + regionBonus,
+      specialBonus,
+      total: base + regionBonus + specialBonus,
       territories: territories.length,
     };
   },
