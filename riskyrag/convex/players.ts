@@ -186,16 +186,30 @@ export const initializeGame = mutation({
       let ownerId: string | undefined;
       let troops = 1;
 
-      for (const nation of scenario.nations) {
-        // Use Array.from to handle readonly arrays
-        const startTerritories = Array.from(nation.startTerritories);
-        if (startTerritories.includes(territory.name)) {
-          ownerId = playerMap[nation.name];
-          troops =
-            nation.startingTroops[
-              territory.name as keyof typeof nation.startingTroops
-            ] ?? 1;
-          break;
+      // Check if territory is neutral (only for scenarios that have neutralTerritories)
+      const neutralTerritories =
+        "neutralTerritories" in scenario
+          ? (scenario as { neutralTerritories: readonly string[] }).neutralTerritories
+          : [];
+      const neutralTroops =
+        "neutralTroops" in scenario
+          ? (scenario as { neutralTroops: Record<string, number> }).neutralTroops
+          : {};
+
+      if (neutralTerritories.includes(territory.name)) {
+        // Neutral territory - no owner
+        ownerId = undefined;
+        troops = neutralTroops[territory.name] ?? 3;
+      } else {
+        // Find which nation owns this territory
+        for (const nation of scenario.nations) {
+          const startTerritories = Array.from(nation.startTerritories) as string[];
+          if (startTerritories.includes(territory.name)) {
+            ownerId = playerMap[nation.name];
+            const startingTroops = nation.startingTroops as Record<string, number>;
+            troops = startingTroops[territory.name] ?? 1;
+            break;
+          }
         }
       }
 

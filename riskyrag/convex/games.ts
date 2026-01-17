@@ -162,8 +162,14 @@ export const nextTurn = mutation({
     const nextIndex = (currentIndex + 1) % players.length;
     const nextPlayer = players[nextIndex];
 
-    // Advance game date (1 month per turn for 1453 scenario)
-    const newDate = game.currentDate + 30 * 24 * 60 * 60 * 1000; // ~30 days
+    // Advance game date (scenario-specific: 2 weeks for 1861, 1 month for others)
+    const scenarioId = game.scenario as ScenarioId;
+    const scenario = SCENARIOS[scenarioId];
+    const timeAdvancement =
+      "timeAdvancementMs" in scenario
+        ? (scenario as { timeAdvancementMs: number }).timeAdvancementMs
+        : 30 * 24 * 60 * 60 * 1000; // Default: ~30 days
+    const newDate = game.currentDate + timeAdvancement;
 
     await ctx.db.patch(args.gameId, {
       currentTurn: game.currentTurn + 1,
