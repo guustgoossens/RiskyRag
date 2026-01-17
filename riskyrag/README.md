@@ -1,306 +1,130 @@
-Welcome to your new TanStack app! 
+# RiskyRag Frontend
 
-# Getting Started
+The frontend for RiskyRag - a multiplayer strategy game where LLM agents play Risk with temporal knowledge filtering.
 
-To run this application:
-
-```bash
-npm install
-npm run dev
-```
-
-# Building For Production
-
-To build this application for production:
+## Quick Start
 
 ```bash
-npm run build
+# Install dependencies
+bun install
+
+# Start Convex backend (in a separate terminal)
+npx convex dev
+
+# Start the frontend
+bun dev
 ```
 
-## Testing
+Open http://localhost:3000 to see the app.
 
-This project uses [Vitest](https://vitest.dev/) for testing. You can run the tests with:
+## Project Structure
+
+```
+riskyrag/
+├── convex/              # Convex backend
+│   ├── schema.ts        # Database schema
+│   ├── games.ts         # Game CRUD operations
+│   ├── players.ts       # Player management
+│   ├── territories.ts   # Territory & combat logic
+│   ├── rag.ts           # Temporal RAG (core innovation!)
+│   ├── agent.ts         # LLM agent with tools
+│   ├── scenarios.ts     # 1453 scenario data
+│   ├── negotiations.ts  # Diplomacy system
+│   ├── gameLog.ts       # Action logging
+│   ├── benchmarks.ts    # Performance tracking
+│   └── seed.ts          # Sample historical data
+│
+├── src/
+│   ├── routes/          # TanStack Router pages
+│   │   ├── index.tsx    # Landing page
+│   │   ├── lobby.tsx    # Game lobby
+│   │   └── game/        # Game view
+│   ├── components/      # React components
+│   │   ├── game/        # Game UI (ActionBar, PlayerHUD)
+│   │   ├── map/         # Map rendering
+│   │   ├── lobby/       # Lobby components
+│   │   └── ui/          # Shared UI components
+│   ├── hooks/           # Custom hooks
+│   │   └── useGame.ts   # Convex game hooks
+│   └── lib/
+│       └── convex.tsx   # Convex provider
+│
+├── .env.local           # Environment variables
+└── package.json
+```
+
+## Environment Variables
+
+Copy `.env.example` to `.env.local`:
 
 ```bash
-npm run test
+cp .env.example .env.local
 ```
+
+Required:
+- `VITE_CONVEX_URL` - Your Convex deployment URL (shown when you run `npx convex dev`)
+
+## Convex Backend
+
+The backend is built with Convex and includes:
+
+### Core Tables
+- **games** - Game sessions with state, scenario, and current turn
+- **players** - Human and AI players with nation assignments
+- **territories** - Map territories with ownership and troop counts
+- **historicalSnippets** - Knowledge base with temporal filtering (vector index)
+- **gameLog** - Action history for replay and benchmarking
+- **negotiations** - Diplomacy messages between players
+
+### Key Functions
+- `games.create` - Create a new game with a scenario
+- `players.initializeGame` - Set up all players and territories
+- `territories.attack` - Simplified deterministic combat
+- `rag.queryHistory` - **CRITICAL**: Temporal RAG with date filtering
+- `agent.executeTurn` - Run an AI player's turn with tool calling
+
+## Temporal RAG
+
+The core innovation is in `convex/rag.ts`. When AI agents query historical knowledge:
+
+```typescript
+// CRITICAL: Vector search with temporal filter
+const results = await ctx.vectorSearch("historicalSnippets", "by_embedding", {
+  vector: embedding,
+  limit: topK,
+  filter: (q) => q.lte(q.field("eventDate"), game.currentDate)
+});
+```
+
+This ensures AI agents **cannot know future events**. If the game date is May 28, 1453, the AI doesn't know that Constantinople will fall on May 29.
+
+## Development
+
+```bash
+# Type check
+bun run typecheck
+
+# Lint
+bun run lint
+
+# Build for production
+bun build
+```
+
+## Seeding Data
+
+To seed sample historical data for testing:
+
+```bash
+npx convex run seed:seedHistoricalData
+```
+
+Note: This uses zero embeddings for testing. For production, use the scraper pipeline to generate proper embeddings.
+
+## Routing
+
+This project uses [TanStack Router](https://tanstack.com/router) with file-based routing. Routes are in `src/routes/`.
 
 ## Styling
 
 This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.
-
-
-## Linting & Formatting
-
-This project uses [Biome](https://biomejs.dev/) for linting and formatting. The following scripts are available:
-
-
-```bash
-npm run lint
-npm run format
-npm run check
-```
-
-
-## Setting up WorkOS
-
-- Set the `VITE_WORKOS_CLIENT_ID` in your `.env.local`.
-
-
-
-## Routing
-This project uses [TanStack Router](https://tanstack.com/router). The initial setup is a file based router. Which means that the routes are managed as files in `src/routes`.
-
-### Adding A Route
-
-To add a new route to your application just add another a new file in the `./src/routes` directory.
-
-TanStack will automatically generate the content of the route file for you.
-
-Now that you have two routes you can use a `Link` component to navigate between them.
-
-### Adding Links
-
-To use SPA (Single Page Application) navigation you will need to import the `Link` component from `@tanstack/react-router`.
-
-```tsx
-import { Link } from "@tanstack/react-router";
-```
-
-Then anywhere in your JSX you can use it like so:
-
-```tsx
-<Link to="/about">About</Link>
-```
-
-This will create a link that will navigate to the `/about` route.
-
-More information on the `Link` component can be found in the [Link documentation](https://tanstack.com/router/v1/docs/framework/react/api/router/linkComponent).
-
-### Using A Layout
-
-In the File Based Routing setup the layout is located in `src/routes/__root.tsx`. Anything you add to the root route will appear in all the routes. The route content will appear in the JSX where you use the `<Outlet />` component.
-
-Here is an example layout that includes a header:
-
-```tsx
-import { Outlet, createRootRoute } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
-
-import { Link } from "@tanstack/react-router";
-
-export const Route = createRootRoute({
-  component: () => (
-    <>
-      <header>
-        <nav>
-          <Link to="/">Home</Link>
-          <Link to="/about">About</Link>
-        </nav>
-      </header>
-      <Outlet />
-      <TanStackRouterDevtools />
-    </>
-  ),
-})
-```
-
-The `<TanStackRouterDevtools />` component is not required so you can remove it if you don't want it in your layout.
-
-More information on layouts can be found in the [Layouts documentation](https://tanstack.com/router/latest/docs/framework/react/guide/routing-concepts#layouts).
-
-
-## Data Fetching
-
-There are multiple ways to fetch data in your application. You can use TanStack Query to fetch data from a server. But you can also use the `loader` functionality built into TanStack Router to load the data for a route before it's rendered.
-
-For example:
-
-```tsx
-const peopleRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/people",
-  loader: async () => {
-    const response = await fetch("https://swapi.dev/api/people");
-    return response.json() as Promise<{
-      results: {
-        name: string;
-      }[];
-    }>;
-  },
-  component: () => {
-    const data = peopleRoute.useLoaderData();
-    return (
-      <ul>
-        {data.results.map((person) => (
-          <li key={person.name}>{person.name}</li>
-        ))}
-      </ul>
-    );
-  },
-});
-```
-
-Loaders simplify your data fetching logic dramatically. Check out more information in the [Loader documentation](https://tanstack.com/router/latest/docs/framework/react/guide/data-loading#loader-parameters).
-
-### React-Query
-
-React-Query is an excellent addition or alternative to route loading and integrating it into you application is a breeze.
-
-First add your dependencies:
-
-```bash
-npm install @tanstack/react-query @tanstack/react-query-devtools
-```
-
-Next we'll need to create a query client and provider. We recommend putting those in `main.tsx`.
-
-```tsx
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
-// ...
-
-const queryClient = new QueryClient();
-
-// ...
-
-if (!rootElement.innerHTML) {
-  const root = ReactDOM.createRoot(rootElement);
-
-  root.render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
-  );
-}
-```
-
-You can also add TanStack Query Devtools to the root route (optional).
-
-```tsx
-import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-
-const rootRoute = createRootRoute({
-  component: () => (
-    <>
-      <Outlet />
-      <ReactQueryDevtools buttonPosition="top-right" />
-      <TanStackRouterDevtools />
-    </>
-  ),
-});
-```
-
-Now you can use `useQuery` to fetch your data.
-
-```tsx
-import { useQuery } from "@tanstack/react-query";
-
-import "./App.css";
-
-function App() {
-  const { data } = useQuery({
-    queryKey: ["people"],
-    queryFn: () =>
-      fetch("https://swapi.dev/api/people")
-        .then((res) => res.json())
-        .then((data) => data.results as { name: string }[]),
-    initialData: [],
-  });
-
-  return (
-    <div>
-      <ul>
-        {data.map((person) => (
-          <li key={person.name}>{person.name}</li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-export default App;
-```
-
-You can find out everything you need to know on how to use React-Query in the [React-Query documentation](https://tanstack.com/query/latest/docs/framework/react/overview).
-
-## State Management
-
-Another common requirement for React applications is state management. There are many options for state management in React. TanStack Store provides a great starting point for your project.
-
-First you need to add TanStack Store as a dependency:
-
-```bash
-npm install @tanstack/store
-```
-
-Now let's create a simple counter in the `src/App.tsx` file as a demonstration.
-
-```tsx
-import { useStore } from "@tanstack/react-store";
-import { Store } from "@tanstack/store";
-import "./App.css";
-
-const countStore = new Store(0);
-
-function App() {
-  const count = useStore(countStore);
-  return (
-    <div>
-      <button onClick={() => countStore.setState((n) => n + 1)}>
-        Increment - {count}
-      </button>
-    </div>
-  );
-}
-
-export default App;
-```
-
-One of the many nice features of TanStack Store is the ability to derive state from other state. That derived state will update when the base state updates.
-
-Let's check this out by doubling the count using derived state.
-
-```tsx
-import { useStore } from "@tanstack/react-store";
-import { Store, Derived } from "@tanstack/store";
-import "./App.css";
-
-const countStore = new Store(0);
-
-const doubledStore = new Derived({
-  fn: () => countStore.state * 2,
-  deps: [countStore],
-});
-doubledStore.mount();
-
-function App() {
-  const count = useStore(countStore);
-  const doubledCount = useStore(doubledStore);
-
-  return (
-    <div>
-      <button onClick={() => countStore.setState((n) => n + 1)}>
-        Increment - {count}
-      </button>
-      <div>Doubled - {doubledCount}</div>
-    </div>
-  );
-}
-
-export default App;
-```
-
-We use the `Derived` class to create a new store that is derived from another store. The `Derived` class has a `mount` method that will start the derived store updating.
-
-Once we've created the derived store we can use it in the `App` component just like we would any other store using the `useStore` hook.
-
-You can find out everything you need to know on how to use TanStack Store in the [TanStack Store documentation](https://tanstack.com/store/latest).
-
-# Demo files
-
-Files prefixed with `demo` can be safely deleted. They are there to provide a starting point for you to play around with the features you've installed.
-
-# Learn More
-
-You can learn more about all of the offerings from TanStack in the [TanStack documentation](https://tanstack.com).
