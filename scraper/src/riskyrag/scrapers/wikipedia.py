@@ -5,8 +5,8 @@ focusing on the 1400-1500 period for the 1453 scenario.
 """
 
 import re
+from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import AsyncIterator
 
 import structlog
 from bs4 import BeautifulSoup
@@ -165,7 +165,7 @@ class WikipediaScraper(BaseScraper):
         sections = content_div.find_all(["h2", "h3"])
         for section in sections:
             section_title = section.get_text().strip()
-            if any(skip in section_title.lower() for skip in ["references", "see also", "notes", "external links"]):
+            if any(skip in section_title.lower() for skip in ["references", "see also", "notes", "external links"]):  # noqa: E501
                 continue
 
             # Get the content following this section

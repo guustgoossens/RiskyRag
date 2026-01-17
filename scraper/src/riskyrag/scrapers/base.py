@@ -6,9 +6,9 @@ along with common utilities for rate limiting, caching, and retry logic.
 
 import asyncio
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncIterator
 
 import httpx
 import structlog

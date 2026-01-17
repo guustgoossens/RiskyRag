@@ -4,7 +4,8 @@ This module provides a decorator-based registration system for scrapers,
 inspired by the pattern used in the context repository.
 """
 
-from typing import TYPE_CHECKING, Callable, TypeVar
+from collections.abc import Callable
+from typing import TYPE_CHECKING, TypeVar
 
 import structlog
 

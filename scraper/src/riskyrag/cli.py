@@ -18,7 +18,7 @@ structlog.configure(
         structlog.processors.add_log_level,
         structlog.dev.ConsoleRenderer(colors=True),
     ],
-    wrapper_class=structlog.make_filtering_bound_logger(structlog.get_logger().level),
+    wrapper_class=structlog.BoundLogger,
 )
 
 logger = structlog.get_logger()
@@ -55,12 +55,11 @@ def scrape(
     Example:
         riskyrag scrape --source wikipedia --start-year 1400 --end-year 1500
     """
+    # Import scrapers to trigger registration
+    import riskyrag.scrapers  # noqa: F401
     from riskyrag.core.registry import get_scraper
     from riskyrag.processors.embeddings import EmbeddingProcessor
     from riskyrag.processors.pipeline import Pipeline
-
-    # Import scrapers to trigger registration
-    import riskyrag.scrapers  # noqa: F401
 
     scraper_class = get_scraper(source)
     if not scraper_class:
@@ -105,7 +104,7 @@ def scrape(
             )
 
     stats = asyncio.run(run())
-    click.echo(f"\nPipeline complete:")
+    click.echo("\nPipeline complete:")
     click.echo(f"  Events scraped: {stats['events_scraped']}")
     click.echo(f"  Snippets processed: {stats['snippets_processed']}")
     click.echo(f"  Snippets uploaded: {stats['snippets_uploaded']}")
@@ -136,10 +135,9 @@ def embed(provider: str, text: str) -> None:
 @main.command()
 def list_sources() -> None:
     """List available scraper sources."""
-    from riskyrag.core.registry import list_scrapers
-
     # Import scrapers to trigger registration
     import riskyrag.scrapers  # noqa: F401
+    from riskyrag.core.registry import list_scrapers
 
     sources = list_scrapers()
     click.echo("Available sources:")
@@ -156,10 +154,9 @@ def test_scrape(source: str, limit: int) -> None:
     Example:
         riskyrag test-scrape --source wikipedia --limit 5
     """
-    from riskyrag.core.registry import get_scraper
-
     # Import scrapers to trigger registration
     import riskyrag.scrapers  # noqa: F401
+    from riskyrag.core.registry import get_scraper
 
     scraper_class = get_scraper(source)
     if not scraper_class:
