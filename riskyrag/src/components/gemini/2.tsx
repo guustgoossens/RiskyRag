@@ -8,12 +8,12 @@ import {
   Check,
   BrainCircuit,
 } from "lucide-react";
+import { useMutation } from "convex/react";
+import { api } from "../../../convex/_generated/api";
 
 /**
  * RISKYRAG LOBBY / SCENARIO SELECTION
- * * Design Philosophy:
- * "The Digital War Room" - A collision of Grand Strategy (Gold/Parchment)
- * and Cyber-Intelligence (Dark Glass/Teal).
+ * Connected to Convex backend for real game creation.
  */
 
 // --- Design System Constants ---
@@ -30,7 +30,7 @@ const COLORS = {
   warCrimson: "text-[#C0392B]",
 };
 
-// --- Mock Data ---
+// --- Scenario Data (maps to Convex scenarios) ---
 const SCENARIOS = [
   {
     id: "1453",
@@ -155,12 +155,27 @@ const AI_MODELS = [
   },
 ];
 
+// Map UI faction IDs to Convex nation names
+const FACTION_TO_NATION: Record<string, string> = {
+  ottoman: "Ottoman Empire",
+  byzantine: "Byzantine Empire",
+  venice: "Venice",
+  genoa: "Genoa",
+};
+
 export default function Lobby() {
   const navigate = useNavigate();
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
   const [playerNationId, setPlayerNationId] = useState<string | null>(null);
   const [opponents, setOpponents] = useState<Record<string, { enabled?: boolean; model: string }>>({});
   const [isLaunching, setIsLaunching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Convex mutations
+  const createGame = useMutation(api.games.create);
+  const joinGame = useMutation(api.players.join);
+  const initializeGame = useMutation(api.players.initializeGame);
+  const startGame = useMutation(api.games.start);
 
   const activeScenario = SCENARIOS.find((s) => s.id === selectedScenarioId);
 
@@ -177,14 +192,42 @@ export default function Lobby() {
     }
   }, [selectedScenarioId, playerNationId]);
 
-  const handleStartGame = () => {
+  const handleStartGame = async () => {
+    if (!selectedScenarioId || !playerNationId) return;
+
     setIsLaunching(true);
-    // Generate a unique game ID (in production this would come from backend)
-    const gameId = `${selectedScenarioId}-${Date.now()}`;
-    // Simulate API call then navigate
-    setTimeout(() => {
+    setError(null);
+
+    try {
+      // 1. Create the game in Convex
+      const gameId = await createGame({
+        scenario: selectedScenarioId,
+      });
+
+      // 2. Join as the human player
+      const playerNation = FACTION_TO_NATION[playerNationId];
+      if (!playerNation) {
+        throw new Error(`Unknown faction: ${playerNationId}`);
+      }
+
+      await joinGame({
+        gameId,
+        nation: playerNation,
+      });
+
+      // 3. Initialize the game (creates AI players and territories)
+      await initializeGame({ gameId });
+
+      // 4. Start the game
+      await startGame({ gameId });
+
+      // 5. Navigate to the game
       navigate({ to: "/game/$gameId", params: { gameId } });
-    }, 1500);
+    } catch (err) {
+      console.error("Failed to create game:", err);
+      setError(err instanceof Error ? err.message : "Failed to create game");
+      setIsLaunching(false);
+    }
   };
 
   return (
@@ -469,6 +512,11 @@ export default function Lobby() {
 
                     {/* Launch Button */}
                     <div className="mt-auto pt-6 border-t border-slate-700">
+                      {error && (
+                        <div className="mb-4 p-3 bg-red-900/30 border border-red-500/50 rounded text-red-400 text-sm">
+                          {error}
+                        </div>
+                      )}
                       <button
                         onClick={handleStartGame}
                         disabled={isLaunching}

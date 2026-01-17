@@ -9,6 +9,7 @@ import { TanStackDevtools } from '@tanstack/react-devtools'
 
 import WorkOSProvider from '../integrations/workos/provider'
 import TanStackQueryDevtools from '../integrations/tanstack-query/devtools'
+import { ConvexClientProvider } from '../lib/convex'
 
 import appCss from '../styles.css?url'
 
@@ -58,21 +59,23 @@ function RootComponent() {
         <HeadContent />
       </head>
       <body className="bg-void-navy text-slate-200">
-        <WorkOSProvider>
-          <Outlet />
-          <TanStackDevtools
-            config={{
-              position: 'bottom-right',
-            }}
-            plugins={[
-              {
-                name: 'TanStack Router',
-                render: <TanStackRouterDevtoolsPanel />,
-              },
-              TanStackQueryDevtools,
-            ]}
-          />
-        </WorkOSProvider>
+        <ConvexClientProvider>
+          <WorkOSProvider>
+            <Outlet />
+            <TanStackDevtools
+              config={{
+                position: 'bottom-right',
+              }}
+              plugins={[
+                {
+                  name: 'TanStack Router',
+                  render: <TanStackRouterDevtoolsPanel />,
+                },
+                TanStackQueryDevtools,
+              ]}
+            />
+          </WorkOSProvider>
+        </ConvexClientProvider>
         <Scripts />
       </body>
     </html>
