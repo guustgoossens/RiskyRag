@@ -153,7 +153,7 @@ class BaseScraper(ABC):
         cache_path = self._get_cache_path(url)
         if cache_path.exists():
             try:
-                html = cache_path.read_text()
+                html = cache_path.read_text(encoding="utf-8")
                 return RawDocument(
                     url=url,
                     html=html,
@@ -169,7 +169,7 @@ class BaseScraper(ABC):
         try:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             cache_path = self._get_cache_path(doc.url)
-            cache_path.write_text(doc.html)
+            cache_path.write_text(doc.html, encoding="utf-8")
         except Exception as e:
             logger.warning("Failed to cache document", url=doc.url, error=str(e))
 
