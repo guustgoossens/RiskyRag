@@ -1,0 +1,44 @@
+PROMPT: Game Setup Screen - Scenario Selection
+
+UI mockup for "RiskyRag" - a multiplayer strategy game where humans and AI agents play Risk in historically accurate scenarios. Key innovation: AI agents are constrained to knowledge of their time period via temporal RAG filtering, making them behave authentically to their era while testing LLM strategic reasoning capabilities.
+
+Show the cinematic game setup/scenario selection screen:
+
+Top header: "RiskyRag" logo with tagline "Where History Meets AI Meets Strategy"
+
+Center: Three large scenario cards in elegant horizontal carousel with depth-of-field blur on non-selected:
+
+**Card 1 (left, slightly dimmed):** "Fall of Constantinople - 1453"
+- Illustrated: Ottoman cannons firing at Byzantine walls, dramatic sunset
+- Metadata chips: "4 Players • Medium Difficulty • ~30 min • Eastern Mediterranean"
+- Historical note: "The end of the Byzantine Empire"
+
+**Card 2 (center, highlighted with glow):** "American Revolution - 1776"
+- Illustrated: Colonial ships in harbor, flags, dramatic clouds
+- Metadata: "6 Players • Hard Difficulty • ~45 min • Atlantic Theater"
+- Historical note: "The birth of a new nation"
+- "SELECTED" badge in corner
+
+**Card 3 (right, slightly dimmed):** "World War I - 1914"
+- Illustrated: Trenches, early biplanes, dramatic war scene
+- Metadata: "8 Players • Expert • ~60 min • Global"
+- Historical note: "The war to end all wars"
+
+Below selected card: "AI Model Configuration" dropdown showing:
+```
+Select AI opponent models:
+○ GPT-4 (Recommended - Best strategic depth)
+● Claude Sonnet 3.5 (Superior negotiation & roleplay)
+○ Llama 3.2 7B (Fast inference, experimental)
+○ Mixed (Different models per nation)
+```
+
+Bottom player setup area showing avatars in a row:
+- Slot 1: "You" (human avatar, customizable)
+- Slot 2: "British Empire" (GPT-4 badge, red coat icon)
+- Slot 3: "France" (Claude badge, fleur-de-lis icon)
+- Slot 4: "Spain" (empty, "+ Add AI" button)
+
+Large golden "Start Game" button bottom right, glowing and pulsing.
+
+Design: Cinematic with dramatic lighting, rich historical color grading, premium game UI with subtle film grain, depth effects. AAA game quality, 4K resolution.

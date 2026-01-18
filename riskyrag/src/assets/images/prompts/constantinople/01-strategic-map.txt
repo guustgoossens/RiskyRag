@@ -1,0 +1,12 @@
+A vertical 9:16 antique military strategy map of Constantinople and the Bosphorus Strait in 1453.
+Aged parchment texture with visible paper grain and subtle coffee staining at edges.
+Hand-drawn cartographic style with cross-hatched shading for terrain relief.
+The city walls are rendered in fine ink detail showing the Theodosian Walls.
+Ottoman military positions marked with crimson (#B91C1C) ink circles on the western approach.
+Byzantine defensive positions in royal purple (#7E22CE) ink inside the walls.
+Decorative compass rose in bottom corner with gold (#D4AF37) leaf accents.
+Subtle latitude/longitude grid lines at 10% opacity.
+Sea monster illustration in the Marmara Sea corner.
+Calligraphic Latin labels: "CONSTANTINOPOLIS", "MARE PROPONTIS".
+Warm candlelit illumination casting soft shadows.
+No modern elements. Photorealistic antique document style.

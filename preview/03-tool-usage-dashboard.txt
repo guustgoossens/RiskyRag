@@ -1,0 +1,39 @@
+PROMPT: LLM Tool Usage Dashboard - Real-time Agent Actions
+
+UI mockup for "RiskyRag" - a strategy game that doubles as an LLM benchmark. AI agents (GPT-4, Claude, Llama) play Risk while being constrained to historical knowledge via temporal RAG filtering. This screen shows real-time AI decision-making for researchers/developers to analyze agent reasoning and tool usage patterns.
+
+Show a developer-focused monitoring dashboard with terminal/console aesthetic:
+
+Header: "AI Agent Monitor - GPT-4 (Ottoman Empire)" with live animated status badge "Status: Thinking..." and pulsing brain icon. Subtitle: "Real-time tool call logging & RAG constraints"
+
+Main terminal panel (left 70%): Dark code editor style showing color-coded tool call logs:
+
+```
+[14:23:45] 🔍 query_history("Byzantine military strength")
+           ← RAG Filter: Events ≤ May 28, 1453
+           → "Byzantine army: ~7,000 defenders, walls fortified since 413 AD"
+
+[14:23:47] 🎯 get_game_state()
+           → Constantinople: 8 troops (Byzantine - Emperor Constantine XI)
+           → Ottoman Anatolia: 15 troops (Ottoman - Sultan Mehmed II)
+           → Adjacent territories: Thrace, Marmara Sea
+
+[14:23:49] ⚔️  attack_territory(
+                 from="Ottoman Anatolia",
+                 to="Constantinople",
+                 troops=12
+              )
+           → Battle initiated: 12 vs 8
+           → Combat resolution in progress...
+```
+
+Right sidebar (30%): "Temporal RAG Filter Status" widget showing:
+- Game date: "May 28, 1453"
+- Knowledge cutoff: "≤ 1453-05-28 23:59"
+- Historical documents retrieved: 47
+- Future events blocked: 1,245
+- Filter integrity: "✓ 100%"
+
+Bottom metrics bar: "Tool calls: 156 | Win probability: 73% | Historical accuracy: 94% | Avg response time: 1.2s"
+
+Design: Dark terminal aesthetic (#0a0e1a background, #1e293b panels), green text (#00ff41) for success, amber (#ffb800) for warnings, cyan (#00d9ff) for info messages, red (#ff4444) for errors. Monospace font (Fira Code), clean data viz. 4K resolution, developer-tool quality.

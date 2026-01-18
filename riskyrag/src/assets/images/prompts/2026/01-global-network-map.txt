@@ -1,0 +1,12 @@
+A vertical 9:16 futuristic holographic world map visualization, 2026.
+Dark void navy (#0F172A) background representing deep space or digital void.
+Continents rendered as wireframe mesh with subtle parchment (#F5E6CC) grid texture.
+Glowing cognitive teal (#00FFA3) connection lines pulsing between major cities.
+Data flow visualized as streams of light along undersea cable routes.
+Hotspot nodes in imperial gold (#D4AF37) marking strategic infrastructure points.
+Subtle satellite constellation orbits traced in thin teal lines above.
+Floating data readouts in JetBrains Mono style font near key regions.
+Glass-morphism panel overlays showing network statistics.
+Reflection and lens flare suggesting holographic projection.
+Collision of ancient cartography (compass rose, latitude lines) with cyber aesthetics.
+No faces. Strategic command center visualization aesthetic.
