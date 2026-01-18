@@ -39,6 +39,220 @@ type Message = {
   tool_call_id?: string;
 };
 
+// ==================== TOOL VALIDATION SYSTEM ====================
+
+type GamePhase = "setup" | "reinforce" | "attack" | "fortify";
+
+type ValidationContext = {
+  phase: GamePhase;
+  hasDoneCheckpoint: boolean;
+  hasPendingConquest: boolean;
+  reinforcementsRemaining: number;
+  setupTroopsRemaining: number;
+  fortifyUsed: boolean;
+};
+
+type ValidationResult = {
+  valid: boolean;
+  error?: string;
+  hint?: string;
+};
+
+// Define which phases each tool is allowed in, and any additional requirements
+const TOOL_VALIDATORS: Record<
+  string,
+  (ctx: ValidationContext, args: Record<string, unknown>) => ValidationResult
+> = {
+  get_game_state: () => ({ valid: true }), // Always allowed
+
+  place_reinforcements: (ctx) => {
+    if (ctx.phase !== "setup" && ctx.phase !== "reinforce") {
+      return {
+        valid: false,
+        error: `Cannot place reinforcements during ${ctx.phase.toUpperCase()} phase.`,
+        hint: "Reinforcements can only be placed during SETUP or REINFORCE phases.",
+      };
+    }
+    if (ctx.phase === "setup" && ctx.setupTroopsRemaining <= 0) {
+      return {
+        valid: false,
+        error: "No setup troops remaining.",
+        hint: "Use finish_setup to complete your setup phase.",
+      };
+    }
+    if (ctx.phase === "reinforce" && ctx.reinforcementsRemaining <= 0) {
+      return {
+        valid: false,
+        error: "No reinforcements remaining.",
+        hint: "Use advance_phase to move to ATTACK phase.",
+      };
+    }
+    return { valid: true };
+  },
+
+  finish_setup: (ctx) => {
+    if (ctx.phase !== "setup") {
+      return {
+        valid: false,
+        error: `Cannot finish setup during ${ctx.phase.toUpperCase()} phase.`,
+        hint: "finish_setup is only available during initial SETUP phase.",
+      };
+    }
+    if (ctx.setupTroopsRemaining > 0) {
+      return {
+        valid: false,
+        error: `You still have ${ctx.setupTroopsRemaining} setup troops to place.`,
+        hint: "Place all troops before finishing setup.",
+      };
+    }
+    return { valid: true };
+  },
+
+  advance_phase: (ctx) => {
+    if (ctx.phase === "setup") {
+      return {
+        valid: false,
+        error: "Cannot advance phase during SETUP.",
+        hint: "Use finish_setup to complete initial placement.",
+      };
+    }
+    if (ctx.phase === "reinforce" && ctx.reinforcementsRemaining > 0) {
+      return {
+        valid: false,
+        error: `You still have ${ctx.reinforcementsRemaining} reinforcements to place.`,
+        hint: "Place all reinforcements before advancing to ATTACK phase.",
+      };
+    }
+    if (ctx.hasPendingConquest) {
+      return {
+        valid: false,
+        error: "You have a pending conquest to confirm.",
+        hint: "Use confirm_conquest to move troops into the conquered territory first.",
+      };
+    }
+    return { valid: true };
+  },
+
+  attack_territory: (ctx) => {
+    if (ctx.phase !== "attack") {
+      return {
+        valid: false,
+        error: `Cannot attack during ${ctx.phase.toUpperCase()} phase.`,
+        hint: ctx.phase === "reinforce"
+          ? "Advance to ATTACK phase first using advance_phase."
+          : "Attacks are only allowed during ATTACK phase.",
+      };
+    }
+    if (ctx.hasPendingConquest) {
+      return {
+        valid: false,
+        error: "You have a pending conquest to confirm.",
+        hint: "Use confirm_conquest before attacking again.",
+      };
+    }
+    return { valid: true };
+  },
+
+  confirm_conquest: (ctx) => {
+    if (!ctx.hasPendingConquest) {
+      return {
+        valid: false,
+        error: "No pending conquest to confirm.",
+        hint: "You can only confirm a conquest after winning an attack.",
+      };
+    }
+    return { valid: true };
+  },
+
+  fortify: (ctx) => {
+    if (ctx.phase !== "fortify") {
+      return {
+        valid: false,
+        error: `Cannot fortify during ${ctx.phase.toUpperCase()} phase.`,
+        hint: "Advance to FORTIFY phase first.",
+      };
+    }
+    if (ctx.fortifyUsed) {
+      return {
+        valid: false,
+        error: "You already used your fortify move this turn.",
+        hint: "You only get ONE fortify move per turn. Use end_turn to finish.",
+      };
+    }
+    return { valid: true };
+  },
+
+  query_history: () => ({ valid: true }), // Always allowed
+
+  send_negotiation: () => ({ valid: true }), // Always allowed
+
+  done: (ctx) => {
+    if (ctx.phase !== "attack" && ctx.phase !== "fortify") {
+      return {
+        valid: false,
+        error: `Cannot validate strategy during ${ctx.phase.toUpperCase()} phase.`,
+        hint: ctx.phase === "reinforce"
+          ? "Complete reinforcements and advance to ATTACK phase first."
+          : "Complete setup first before validating strategy.",
+      };
+    }
+    if (ctx.hasPendingConquest) {
+      return {
+        valid: false,
+        error: "You have a pending conquest to confirm.",
+        hint: "Use confirm_conquest before calling done.",
+      };
+    }
+    return { valid: true };
+  },
+
+  end_turn: (ctx) => {
+    if (ctx.phase !== "attack" && ctx.phase !== "fortify") {
+      return {
+        valid: false,
+        error: `Cannot end turn during ${ctx.phase.toUpperCase()} phase.`,
+        hint: ctx.phase === "reinforce"
+          ? "Place all reinforcements and advance through phases first."
+          : "Complete setup first.",
+      };
+    }
+    if (ctx.hasPendingConquest) {
+      return {
+        valid: false,
+        error: "You have a pending conquest to confirm.",
+        hint: "Use confirm_conquest before ending your turn.",
+      };
+    }
+    if (!ctx.hasDoneCheckpoint) {
+      return {
+        valid: false,
+        error: "You must call 'done' before ending your turn.",
+        hint: "Call the 'done' tool to validate your strategy, then call end_turn.",
+      };
+    }
+    return { valid: true };
+  },
+};
+
+// Validate a tool call before execution
+function validateToolCall(
+  toolName: string,
+  args: Record<string, unknown>,
+  ctx: ValidationContext
+): ValidationResult {
+  const validator = TOOL_VALIDATORS[toolName];
+  if (!validator) {
+    return {
+      valid: false,
+      error: `Unknown tool: ${toolName}`,
+      hint: "Check available tools in the game context.",
+    };
+  }
+  return validator(ctx, args);
+}
+
+// ==================== TOOL DEFINITIONS ====================
+
 // Tool definitions for AI agents
 const GAME_TOOLS = [
   {
@@ -474,6 +688,57 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
           let toolResult: string;
           let toolError: string | undefined;
 
+          // ===== VALIDATE TOOL CALL =====
+          // Get fresh game state for validation
+          const currentGame = await ctx.runQuery(api.games.get, { id: args.gameId });
+          const currentPlayer = await ctx.runQuery(api.players.get, { id: args.playerId });
+
+          const validationCtx: ValidationContext = {
+            phase: (currentGame?.phase ?? "reinforce") as GamePhase,
+            hasDoneCheckpoint: !!doneCheckpoint,
+            hasPendingConquest: !!currentGame?.pendingConquest,
+            reinforcementsRemaining: currentGame?.reinforcementsRemaining ?? 0,
+            setupTroopsRemaining: currentPlayer?.setupTroopsRemaining ?? 0,
+            fortifyUsed: currentGame?.fortifyUsed ?? false,
+          };
+
+          const validation = validateToolCall(toolName, toolArgs, validationCtx);
+
+          if (!validation.valid) {
+            // Tool call rejected - return clear error to agent
+            toolError = validation.error;
+            toolResult = JSON.stringify({
+              rejected: true,
+              error: validation.error,
+              hint: validation.hint,
+              currentPhase: validationCtx.phase,
+              hasDoneCheckpoint: validationCtx.hasDoneCheckpoint,
+            });
+
+            // Log the rejection
+            await ctx.runMutation(api.agentStreaming.logToolCallComplete, {
+              toolCallId,
+              result: toolResult,
+              status: "error",
+              errorMessage: `Validation failed: ${validation.error}`,
+            });
+
+            // Add tool result to conversation so agent learns from rejection
+            messages.push({
+              role: "assistant",
+              content: null,
+              tool_calls: [toolCall],
+            });
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: toolResult,
+            });
+
+            continue; // Skip execution, move to next tool call
+          }
+
+          // ===== EXECUTE VALIDATED TOOL =====
           try {
             switch (toolName) {
               case "get_game_state": {
@@ -485,10 +750,8 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
               }
 
               case "place_reinforcements": {
-                // Get current game to check phase
-                const currentGame = await ctx.runQuery(api.games.get, { id: args.gameId });
-
-                if (currentGame?.phase === "setup") {
+                // Use phase from validation context (already fetched)
+                if (validationCtx.phase === "setup") {
                   // During setup phase, use placeSetupTroop
                   const result = await ctx.runMutation(api.territories.placeSetupTroop, {
                     gameId: args.gameId,
@@ -629,23 +892,7 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
               }
 
               case "done": {
-                // Phase validation: done can only be called during ATTACK or FORTIFY phases
-                const currentGameState = await ctx.runQuery(api.games.get, { id: args.gameId });
-                const currentPhase = currentGameState?.phase ?? "reinforce";
-
-                if (currentPhase !== "attack" && currentPhase !== "fortify") {
-                  toolResult = JSON.stringify({
-                    error: true,
-                    message: `Cannot call 'done' during ${currentPhase.toUpperCase()} phase. Complete reinforcements and attacks first, then call 'done' before ending your turn.`,
-                    hint: currentPhase === "reinforce"
-                      ? "Place all reinforcements first, then advance to ATTACK phase."
-                      : currentPhase === "setup"
-                        ? "Complete setup first using place_reinforcements and finish_setup."
-                        : "Advance to a later phase before validating your strategy.",
-                  });
-                  break;
-                }
-
+                // Validation already done by validateToolCall - just execute
                 // Store checkpoint data for activity completion
                 doneCheckpoint = {
                   status: toolArgs.status,
