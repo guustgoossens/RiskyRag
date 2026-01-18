@@ -1,7 +1,114 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { api } from "./_generated/api";
 import { REGION_BONUSES, type ScenarioId } from "./scenarios";
+import type { Doc, Id } from "./_generated/dataModel";
+
+// Helper to find a territory by name OR displayName (case-insensitive)
+// This allows agents to use either "Constantinople" or "constantinople"
+async function findTerritory(
+  ctx: MutationCtx,
+  gameId: Id<"games">,
+  territoryInput: string
+): Promise<Doc<"territories"> | null> {
+  // First try exact match on internal name (indexed, fast)
+  let territory = await ctx.db
+    .query("territories")
+    .withIndex("by_game_name", (q) =>
+      q.eq("gameId", gameId).eq("name", territoryInput)
+    )
+    .first();
+
+  if (territory) return territory;
+
+  // Try lowercase match on internal name
+  const lowerInput = territoryInput.toLowerCase();
+  territory = await ctx.db
+    .query("territories")
+    .withIndex("by_game_name", (q) =>
+      q.eq("gameId", gameId).eq("name", lowerInput)
+    )
+    .first();
+
+  if (territory) return territory;
+
+  // Try matching by displayName (case-insensitive)
+  const allTerritories = await ctx.db
+    .query("territories")
+    .withIndex("by_game", (q) => q.eq("gameId", gameId))
+    .collect();
+
+  return allTerritories.find(
+    (t) =>
+      t.displayName.toLowerCase() === lowerInput ||
+      t.displayName === territoryInput
+  ) ?? null;
+}
+
+// Helper: BFS to check if path exists through owned territories
+async function isValidFortifyPath(
+  ctx: MutationCtx,
+  fromTerritory: Doc<"territories">,
+  toTerritory: Doc<"territories">,
+  playerId: Id<"players">
+): Promise<boolean> {
+  if (fromTerritory._id === toTerritory._id) return false;
+
+  // Build territory lookup by name
+  const allTerritories = await ctx.db
+    .query("territories")
+    .withIndex("by_game", (q) => q.eq("gameId", fromTerritory.gameId))
+    .collect();
+
+  const territoryMap = new Map<string, Doc<"territories">>();
+  for (const t of allTerritories) {
+    territoryMap.set(t.name, t);
+  }
+
+  // BFS through owned territories
+  const queue: string[] = [fromTerritory.name];
+  const visited = new Set<string>([fromTerritory.name]);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (current === toTerritory.name) return true;
+
+    const currentTerritory = territoryMap.get(current);
+    if (!currentTerritory) continue;
+
+    for (const neighborName of currentTerritory.adjacentTo) {
+      if (visited.has(neighborName)) continue;
+      const neighbor = territoryMap.get(neighborName);
+      if (neighbor && neighbor.ownerId === playerId) {
+        visited.add(neighborName);
+        queue.push(neighborName);
+      }
+    }
+  }
+
+  return false;
+}
+
+// ==================== RISK CARD HELPERS ====================
+
+// Card types
+type CardType = "infantry" | "cavalry" | "artillery";
+
+// Get trade bonus based on how many trades have occurred (escalating values)
+function getCardTradeBonus(tradeNumber: number): number {
+  const bonuses = [4, 6, 8, 10, 12, 15, 20];
+  return bonuses[Math.min(tradeNumber, bonuses.length - 1)];
+}
+
+// Validate if a set of 3 cards is a valid trade
+function isValidCardSet(cards: CardType[]): boolean {
+  if (cards.length !== 3) return false;
+  const types = new Set(cards);
+  // Valid: 3 of same type OR 1 of each type
+  return types.size === 1 || types.size === 3;
+}
+
+// ==================== DICE HELPERS ====================
 
 // Roll N dice and return sorted descending
 function rollDice(count: number): number[] {
@@ -115,23 +222,15 @@ export const moveTroops = mutation({
       throw new Error("Must confirm conquest before fortifying");
     }
 
-    // Get both territories
-    const from = await ctx.db
-      .query("territories")
-      .withIndex("by_game_name", (q) =>
-        q.eq("gameId", args.gameId).eq("name", args.fromTerritory)
-      )
-      .first();
+    // Get both territories (supports both internal name and displayName)
+    const from = await findTerritory(ctx, args.gameId, args.fromTerritory);
+    const to = await findTerritory(ctx, args.gameId, args.toTerritory);
 
-    const to = await ctx.db
-      .query("territories")
-      .withIndex("by_game_name", (q) =>
-        q.eq("gameId", args.gameId).eq("name", args.toTerritory)
-      )
-      .first();
-
-    if (!from || !to) {
-      throw new Error("Territory not found");
+    if (!from) {
+      throw new Error(`Territory not found: "${args.fromTerritory}"`);
+    }
+    if (!to) {
+      throw new Error(`Territory not found: "${args.toTerritory}"`);
     }
 
     // Validate ownership
@@ -139,9 +238,10 @@ export const moveTroops = mutation({
       throw new Error("You don't own both territories");
     }
 
-    // Validate adjacency
-    if (!from.adjacentTo.includes(args.toTerritory)) {
-      throw new Error("Territories are not adjacent");
+    // Validate connected path through owned territories (Risk rules)
+    const hasPath = await isValidFortifyPath(ctx, from, to, args.playerId);
+    if (!hasPath) {
+      throw new Error(`No connected path through your territories: ${from.displayName} → ${to.displayName}`);
     }
 
     // Validate troop count
@@ -198,23 +298,15 @@ export const attack = mutation({
       throw new Error(`Cannot attack during ${game.phase} phase`);
     }
 
-    // Get both territories
-    const attacker = await ctx.db
-      .query("territories")
-      .withIndex("by_game_name", (q) =>
-        q.eq("gameId", args.gameId).eq("name", args.fromTerritory)
-      )
-      .first();
+    // Get both territories (supports both internal name and displayName)
+    const attacker = await findTerritory(ctx, args.gameId, args.fromTerritory);
+    const defender = await findTerritory(ctx, args.gameId, args.toTerritory);
 
-    const defender = await ctx.db
-      .query("territories")
-      .withIndex("by_game_name", (q) =>
-        q.eq("gameId", args.gameId).eq("name", args.toTerritory)
-      )
-      .first();
-
-    if (!attacker || !defender) {
-      throw new Error("Territory not found");
+    if (!attacker) {
+      throw new Error(`Territory not found: "${args.fromTerritory}"`);
+    }
+    if (!defender) {
+      throw new Error(`Territory not found: "${args.toTerritory}"`);
     }
 
     // Validate attacker ownership
@@ -227,9 +319,9 @@ export const attack = mutation({
       throw new Error("Cannot attack your own territory");
     }
 
-    // Validate adjacency
-    if (!attacker.adjacentTo.includes(args.toTerritory)) {
-      throw new Error("Territories are not adjacent");
+    // Validate adjacency (use internal name for comparison)
+    if (!attacker.adjacentTo.includes(defender.name)) {
+      throw new Error(`Territories are not adjacent: ${attacker.displayName} → ${defender.displayName}`);
     }
 
     // Validate troop count: must have at least diceCount + 1 troops (leave 1 behind)
@@ -425,9 +517,10 @@ export const confirmConquest = mutation({
       }
     }
 
-    // Clear pending conquest
+    // Clear pending conquest and mark that player conquered this turn (for card draw)
     await ctx.db.patch(args.gameId, {
       pendingConquest: undefined,
+      conqueredThisTurn: true, // Player will draw a card at end of turn
     });
 
     // Check for 75% territory domination victory
@@ -505,15 +598,11 @@ export const reinforce = mutation({
       throw new Error(`Only ${remaining} reinforcements remaining`);
     }
 
-    const territory = await ctx.db
-      .query("territories")
-      .withIndex("by_game_name", (q) =>
-        q.eq("gameId", args.gameId).eq("name", args.territory)
-      )
-      .first();
+    // Find territory (supports both internal name and displayName)
+    const territory = await findTerritory(ctx, args.gameId, args.territory);
 
     if (!territory) {
-      throw new Error("Territory not found");
+      throw new Error(`Territory not found: "${args.territory}"`);
     }
 
     if (territory.ownerId !== args.playerId) {
@@ -530,21 +619,122 @@ export const reinforce = mutation({
       reinforcementsRemaining: newRemaining,
     });
 
-    // Log the action
+    // Log the action (use internal name for consistency)
     await ctx.db.insert("gameLog", {
       gameId: args.gameId,
       turn: game.currentTurn,
       playerId: args.playerId,
       action: "reinforce",
       details: {
-        territory: args.territory,
+        territory: territory.name,
+        displayName: territory.displayName,
         troops: args.troops,
         remaining: newRemaining,
       },
       timestamp: Date.now(),
     });
 
-    return { success: true, remaining: newRemaining };
+    return { success: true, remaining: newRemaining, territory: territory.displayName };
+  },
+});
+
+// Trade Risk cards for bonus troops (REINFORCE phase only)
+export const tradeCards = mutation({
+  args: {
+    gameId: v.id("games"),
+    playerId: v.id("players"),
+    cardIndices: v.array(v.number()),
+  },
+  handler: async (ctx, args) => {
+    // Get game and validate phase
+    const game = await ctx.db.get(args.gameId);
+    if (!game) {
+      throw new Error("Game not found");
+    }
+    if (game.currentPlayerId !== args.playerId) {
+      throw new Error("Not your turn");
+    }
+    if (game.phase !== "reinforce") {
+      throw new Error(`Cannot trade cards during ${game.phase} phase. Only during REINFORCE phase.`);
+    }
+
+    // Get player and their cards
+    const player = await ctx.db.get(args.playerId);
+    if (!player) {
+      throw new Error("Player not found");
+    }
+
+    const playerCards = (player.cards ?? []) as CardType[];
+
+    // Validate we have 3 indices
+    if (args.cardIndices.length !== 3) {
+      throw new Error("Must trade exactly 3 cards");
+    }
+
+    // Validate indices are valid and unique
+    const uniqueIndices = new Set(args.cardIndices);
+    if (uniqueIndices.size !== 3) {
+      throw new Error("Card indices must be unique");
+    }
+    for (const idx of args.cardIndices) {
+      if (idx < 0 || idx >= playerCards.length) {
+        throw new Error(`Invalid card index: ${idx}. You have ${playerCards.length} cards.`);
+      }
+    }
+
+    // Get the cards being traded
+    const sortedIndices = [...args.cardIndices].sort((a, b) => a - b);
+    const tradedCards = sortedIndices.map(i => playerCards[i]);
+
+    // Validate the set is valid (3 of same or 1 of each)
+    if (!isValidCardSet(tradedCards)) {
+      throw new Error(
+        `Invalid card set: [${tradedCards.join(", ")}]. Must be 3 of the same type OR 1 of each type.`
+      );
+    }
+
+    // Calculate bonus (escalating)
+    const tradeCount = game.cardTradeCount ?? 0;
+    const bonus = getCardTradeBonus(tradeCount);
+
+    // Remove traded cards from player (remove from highest index first to preserve indices)
+    const newCards = playerCards.filter((_, i) => !args.cardIndices.includes(i));
+    await ctx.db.patch(args.playerId, { cards: newCards });
+
+    // Increment global trade count
+    await ctx.db.patch(args.gameId, {
+      cardTradeCount: tradeCount + 1,
+      mustTradeCards: newCards.length >= 5, // Check if still need to trade
+    });
+
+    // Add bonus to reinforcements
+    const currentReinforcements = game.reinforcementsRemaining ?? 0;
+    await ctx.db.patch(args.gameId, {
+      reinforcementsRemaining: currentReinforcements + bonus,
+    });
+
+    // Log the action
+    await ctx.db.insert("gameLog", {
+      gameId: args.gameId,
+      turn: game.currentTurn,
+      playerId: args.playerId,
+      action: "trade_cards",
+      details: {
+        cardsTraded: tradedCards,
+        troopsEarned: bonus,
+        tradeNumber: tradeCount + 1,
+        cardsRemaining: newCards.length,
+      },
+      timestamp: Date.now(),
+    });
+
+    return {
+      success: true,
+      troopsEarned: bonus,
+      cardsTraded: tradedCards,
+      cardsRemaining: newCards.length,
+      totalReinforcements: currentReinforcements + bonus,
+    };
   },
 });
 
@@ -652,16 +842,11 @@ export const placeSetupTroop = mutation({
       throw new Error(`Only ${remaining} setup troops remaining`);
     }
 
-    // Get territory and validate ownership
-    const territory = await ctx.db
-      .query("territories")
-      .withIndex("by_game_name", (q) =>
-        q.eq("gameId", args.gameId).eq("name", args.territory)
-      )
-      .first();
+    // Get territory (supports both internal name and displayName)
+    const territory = await findTerritory(ctx, args.gameId, args.territory);
 
     if (!territory) {
-      throw new Error("Territory not found");
+      throw new Error(`Territory not found: "${args.territory}"`);
     }
     if (territory.ownerId !== args.playerId) {
       throw new Error("You don't own this territory");
@@ -678,21 +863,22 @@ export const placeSetupTroop = mutation({
       setupTroopsRemaining: newRemaining,
     });
 
-    // Log the action
+    // Log the action (use internal name for consistency)
     await ctx.db.insert("gameLog", {
       gameId: args.gameId,
       turn: game.currentTurn,
       playerId: args.playerId,
       action: "setup_place",
       details: {
-        territory: args.territory,
+        territory: territory.name,
+        displayName: territory.displayName,
         troops: args.troops,
         remaining: newRemaining,
       },
       timestamp: Date.now(),
     });
 
-    return { success: true, remaining: newRemaining };
+    return { success: true, remaining: newRemaining, territory: territory.displayName };
   },
 });
 

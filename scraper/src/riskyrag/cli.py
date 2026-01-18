@@ -36,12 +36,15 @@ def main(env_file: str) -> None:
 
 
 @main.command()
-@click.option("--period", default="constantinople", help="period to scrape (constantinople)")
+@click.option("--period", default="constantinople", help="period to scrape (constantinople, civil_war)")
 @click.option("--start-year", default=1400, type=int, help="Start year for date filter")
 @click.option("--end-year", default=1500, type=int, help="End year for date filter")
 @click.option("--limit", default=None, type=int, help="Maximum events to scrape")
 @click.option("--dry-run", is_flag=True, help="Don't upload to Convex")
 @click.option("--cache-dir", default=".cache", help="Directory for caching")
+@click.option("--chunk-size", default=500, type=int, help="Target chunk size in characters")
+@click.option("--chunk-overlap", default=100, type=int, help="Overlap between chunks")
+@click.option("--no-llm-filter", is_flag=True, help="Skip LLM temporal filtering")
 def scrape(
     period: str,
     start_year: int,
@@ -49,15 +52,26 @@ def scrape(
     limit: int | None,
     dry_run: bool,
     cache_dir: str,
+    chunk_size: int,
+    chunk_overlap: int,
+    no_llm_filter: bool,
 ) -> None:
     """Scrape historical data from a time period.
 
+    The pipeline:
+    1. Scrapes Wikipedia articles for the period
+    2. Chunks content into ~500 char pieces
+    3. LLM filters to remove anachronistic references (uses Haiku)
+    4. Generates embeddings (Voyage or OpenAI)
+    5. Uploads to Convex
+
     Example:
         riskyrag scrape --period constantinople --start-year 1400 --end-year 1500
+        riskyrag scrape --period civil_war --start-year 1860 --end-year 1865
     """
     # Ensure .env is loaded (in case parent command didn't run)
     load_dotenv()
-    
+
     # Import scrapers to trigger registration
     import riskyrag.scrapers  # noqa: F401
     from riskyrag.core.registry import get_scraper
@@ -80,6 +94,12 @@ def scrape(
     else:
         raise click.ClickException("No embedding API key found (VOYAGE_API_KEY or OPENAI_API_KEY)")
 
+    # Check for LLM filter API key
+    use_llm_filter = not no_llm_filter
+    if use_llm_filter and not os.environ.get("ANTHROPIC_API_KEY"):
+        logger.warning("ANTHROPIC_API_KEY not set, LLM filtering will be skipped")
+        use_llm_filter = False
+
     logger.info(
         "Starting scrape",
         period=period,
@@ -87,6 +107,9 @@ def scrape(
         limit=limit,
         dry_run=dry_run,
         embedding_provider=provider,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        use_llm_filter=use_llm_filter,
     )
 
     async def run() -> dict[str, int]:
@@ -97,6 +120,9 @@ def scrape(
             scraper=scraper,
             embedding_processor=embedding_processor,
             convex_url=convex_url or "",
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            use_llm_filter=use_llm_filter,
         )
 
         async with embedding_processor:
@@ -109,8 +135,12 @@ def scrape(
     stats = asyncio.run(run())
     click.echo("\nPipeline complete:")
     click.echo(f"  Events scraped: {stats['events_scraped']}")
-    click.echo(f"  Snippets processed: {stats['snippets_processed']}")
+    click.echo(f"  Chunks created: {stats['chunks_created']}")
+    click.echo(f"  Chunks filtered (removed): {stats['chunks_filtered']}")
+    click.echo(f"  Chunks retained: {stats['chunks_retained']}")
+    click.echo(f"  Snippets embedded: {stats['snippets_embedded']}")
     click.echo(f"  Snippets uploaded: {stats['snippets_uploaded']}")
+    click.echo(f"  Snippets skipped (duplicates): {stats.get('snippets_skipped', 0)}")
     click.echo(f"  Errors: {stats['errors']}")
 
 

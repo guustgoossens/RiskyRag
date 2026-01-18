@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { api } from "./_generated/api";
 
 // Record game results for benchmarking
 export const recordResult = mutation({
@@ -53,6 +54,16 @@ export const recordResult = mutation({
           .length,
       };
     });
+
+    // Automatically evaluate all players in this game
+    try {
+      await ctx.scheduler.runAfter(0, api.evals.evaluateGame, {
+        gameId: args.gameId,
+      });
+    } catch (error) {
+      console.error("Failed to trigger automatic evaluation:", error);
+      // Don't fail the benchmark recording if evaluation fails
+    }
 
     // Calculate duration
     const firstLog = logs.sort((a, b) => a.timestamp - b.timestamp)[0];

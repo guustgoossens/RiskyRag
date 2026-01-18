@@ -20,10 +20,18 @@ interface PlayerConfigProps {
 }
 
 const AI_MODELS: { value: LLMModel; label: string; description: string }[] = [
-  { value: "gpt-4", label: "GPT-4", description: "Best strategic reasoning" },
-  { value: "claude-sonnet", label: "Claude", description: "Superior negotiation" },
-  { value: "llama-3.2-7b", label: "Llama 7B", description: "Fast, local inference" },
-  { value: "llama-3.2-13b", label: "Llama 13B", description: "Better reasoning, slower" },
+  // OpenAI
+  { value: "gpt-4o", label: "GPT-4o", description: "Best strategic reasoning" },
+  { value: "gpt-4o-mini", label: "GPT-4o Mini", description: "Fast, cost-effective" },
+  // Anthropic
+  { value: "claude-sonnet", label: "Claude Sonnet", description: "Superior negotiation" },
+  // DigitalOcean Gradient
+  { value: "deepseek-r1-70b", label: "DeepSeek R1 70B", description: "Best open-source reasoning" },
+  { value: "mistral-nemo", label: "Mistral NeMo 12B", description: "Fast, 128K context" },
+  { value: "llama-3.1-8b", label: "Llama 3.1 8B", description: "Lightweight, fast" },
+  { value: "qwen3-32b", label: "Qwen3 32B", description: "Strong multilingual" },
+  // Self-hosted vLLM
+  { value: "llama-3.2-7b", label: "Llama 3.2 7B (vLLM)", description: "Local inference" },
 ];
 
 export function PlayerConfig({

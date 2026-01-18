@@ -98,6 +98,15 @@ class ProcessedSnippet:
     tags: list[str]
     title: Optional[str]
     participants: Optional[list[str]]
+    content_hash: Optional[str] = None  # MD5 hash for deduplication
+
+    def __post_init__(self) -> None:
+        """Generate content hash if not provided."""
+        if self.content_hash is None:
+            import hashlib
+            # Hash content + event_date for uniqueness
+            hash_input = f"{self.content}:{self.event_date}".encode("utf-8")
+            self.content_hash = hashlib.md5(hash_input).hexdigest()
 
     def to_convex_doc(self) -> dict:
         """Convert to a Convex document for insertion."""
@@ -112,6 +121,7 @@ class ProcessedSnippet:
             "tags": self.tags,
             "title": self.title,
             "participants": self.participants,
+            "contentHash": self.content_hash,
         }
 
 
@@ -137,4 +147,23 @@ NATIONS_1453 = [
     "Serbia",
     "Papal States",
     "Mamluk Sultanate",
+]
+
+# Region constants for the Civil War scenario
+REGIONS_CIVIL_WAR = [
+    "Eastern Theater",
+    "Western Theater",
+    "Trans-Mississippi",
+    "Atlantic/Naval",
+    "Georgia",
+    "Carolinas",
+    "Washington D.C.",
+    "Border States",
+    "United States",
+]
+
+# Nations/factions for the Civil War scenario
+NATIONS_CIVIL_WAR = [
+    "United States",
+    "Confederate States",
 ]

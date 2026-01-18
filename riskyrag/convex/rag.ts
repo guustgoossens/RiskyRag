@@ -19,6 +19,7 @@ export const queryHistory = action({
       title: string | null;
       date: string;
       source: string;
+      sourceUrl: string | null;
       relevanceScore: number;
     }>
   > => {
@@ -69,6 +70,7 @@ export const queryHistory = action({
         title: s.doc?.title ?? null,
         date: new Date(s.doc?.eventDate ?? 0).toISOString(),
         source: s.doc?.source ?? "unknown",
+        sourceUrl: s.doc?.sourceUrl ?? null,
         relevanceScore: s.score,
       }));
 
@@ -93,6 +95,7 @@ export const queryHistoryWithBlocked = action({
       title: string | null;
       date: string;
       source: string;
+      sourceUrl: string | null;
       relevanceScore: number;
     }>;
     blocked: {
@@ -161,6 +164,7 @@ export const queryHistoryWithBlocked = action({
       title: s.doc?.title ?? null,
       date: new Date(s.doc?.eventDate ?? 0).toISOString(),
       source: s.doc?.source ?? "unknown",
+      sourceUrl: s.doc?.sourceUrl ?? null,
       relevanceScore: s.score,
     }));
 
@@ -202,7 +206,7 @@ export const addSnippet = mutation({
   },
 });
 
-// Batch add snippets (for bulk ingestion)
+// Batch add snippets (for bulk ingestion) - with deduplication
 export const batchAddSnippets = mutation({
   args: {
     snippets: v.array(
@@ -217,16 +221,73 @@ export const batchAddSnippets = mutation({
         tags: v.array(v.string()),
         title: v.optional(v.string()),
         participants: v.optional(v.array(v.string())),
+        contentHash: v.optional(v.string()), // MD5 hash for dedup
       })
     ),
   },
   handler: async (ctx, args) => {
-    const ids = [];
+    const results: { inserted: number; skipped: number; ids: string[] } = {
+      inserted: 0,
+      skipped: 0,
+      ids: [],
+    };
+
     for (const snippet of args.snippets) {
+      // Check for existing snippet with same content hash
+      if (snippet.contentHash) {
+        const existing = await ctx.db
+          .query("historicalSnippets")
+          .withIndex("by_content_hash", (q) =>
+            q.eq("contentHash", snippet.contentHash)
+          )
+          .first();
+
+        if (existing) {
+          results.skipped++;
+          results.ids.push(existing._id);
+          continue;
+        }
+      }
+
+      // Insert new snippet
       const id = await ctx.db.insert("historicalSnippets", snippet);
-      ids.push(id);
+      results.inserted++;
+      results.ids.push(id);
     }
-    return ids;
+
+    return results;
+  },
+});
+
+// Upsert a single snippet (insert or skip if exists)
+export const upsertSnippet = mutation({
+  args: {
+    content: v.string(),
+    embedding: v.array(v.float64()),
+    eventDate: v.number(),
+    publicationDate: v.number(),
+    source: v.string(),
+    sourceUrl: v.optional(v.string()),
+    region: v.string(),
+    tags: v.array(v.string()),
+    title: v.optional(v.string()),
+    participants: v.optional(v.array(v.string())),
+    contentHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Check for existing snippet
+    const existing = await ctx.db
+      .query("historicalSnippets")
+      .withIndex("by_content_hash", (q) => q.eq("contentHash", args.contentHash))
+      .first();
+
+    if (existing) {
+      return { action: "skipped" as const, id: existing._id };
+    }
+
+    // Insert new snippet
+    const id = await ctx.db.insert("historicalSnippets", args);
+    return { action: "inserted" as const, id };
   },
 });
 
@@ -260,6 +321,187 @@ export const listByDateRange = query({
       .take(limit);
   },
 });
+
+// ==================== LLM-SYNTHESIZED CHAT ====================
+
+// Years to look back from game date (±50 years by default)
+const DEFAULT_DATE_RANGE_YEARS = 50;
+
+// Synthesize a coherent response from RAG snippets using LLM
+export const synthesizeHistoricalResponse = action({
+  args: {
+    question: v.string(),
+    gameId: v.id("games"),
+    playerNation: v.string(),
+    topK: v.optional(v.number()),
+    dateRangeYears: v.optional(v.number()),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    response: string;
+    citations: Array<{
+      url: string | null;
+      source: string;
+      title: string | null;
+    }>;
+    blockedCount: number;
+  }> => {
+    // Get the current game state
+    const game = await ctx.runQuery(api.games.get, { id: args.gameId });
+    if (!game) {
+      throw new Error("Game not found");
+    }
+
+    const maxDate = game.currentDate;
+    const dateRangeYears = args.dateRangeYears ?? DEFAULT_DATE_RANGE_YEARS;
+    // Calculate min date (50 years before game date by default)
+    const minDate = maxDate - dateRangeYears * 365 * 24 * 60 * 60 * 1000;
+    const topK = args.topK ?? 5;
+
+    // Generate embedding for the question
+    const embedding = await generateEmbedding(args.question);
+
+    // Vector search - fetch extra to account for filtering
+    const searchResults = await ctx.vectorSearch(
+      "historicalSnippets",
+      "by_embedding",
+      {
+        vector: embedding,
+        limit: topK * 5, // Fetch more since we're filtering by date range
+      }
+    );
+
+    // Fetch full documents
+    const allSnippets = await Promise.all(
+      searchResults.map(async (r) => {
+        const doc = await ctx.runQuery(api.rag.getSnippet, { id: r._id });
+        return {
+          doc,
+          score: r._score,
+        };
+      })
+    );
+
+    // Separate into allowed and blocked with DATE RANGE filtering
+    const allowed: typeof allSnippets = [];
+    let blockedCount = 0;
+
+    for (const s of allSnippets) {
+      if (!s.doc) continue;
+
+      // CRITICAL: Must be AFTER minDate (not too old) and BEFORE maxDate (not future)
+      if (s.doc.eventDate > maxDate) {
+        // Future event - blocked
+        blockedCount++;
+      } else if (s.doc.eventDate < minDate) {
+        // Too old - skip but don't count as blocked (just not relevant)
+        continue;
+      } else {
+        // Within date range
+        allowed.push(s);
+      }
+    }
+
+    // Get top K allowed snippets
+    const relevantSnippets = allowed.slice(0, topK);
+
+    // Build citations
+    const citations = relevantSnippets.map((s) => ({
+      url: s.doc?.sourceUrl ?? null,
+      source: s.doc?.source ?? "unknown",
+      title: s.doc?.title ?? null,
+    }));
+
+    // If no snippets, return "no knowledge" response
+    if (relevantSnippets.length === 0) {
+      const gameYear = new Date(maxDate).getFullYear();
+      return {
+        response: `I have no knowledge of this matter as of ${gameYear}. The archives contain no relevant records from this era.`,
+        citations: [],
+        blockedCount,
+      };
+    }
+
+    // Build context for LLM
+    const snippetContext = relevantSnippets
+      .map((s, i) => {
+        const date = new Date(s.doc?.eventDate ?? 0).getFullYear();
+        return `[Source ${i + 1}, ${date}]: ${s.doc?.content}`;
+      })
+      .join("\n\n");
+
+    const gameYear = new Date(maxDate).getFullYear();
+
+    // Call LLM to synthesize response
+    const synthesizedResponse = await callChatLLM({
+      systemPrompt: `You are a historical advisor for the nation of ${args.playerNation} in the year ${gameYear}.
+You have access to historical archives and must answer questions based ONLY on the provided sources.
+Respond in character as an advisor/scholar from this era. Be concise but informative.
+Do NOT mention source numbers or citations in your response - those are handled separately.
+If the sources don't contain relevant information for the question, say so honestly.
+Keep responses to 2-3 paragraphs maximum.`,
+      userMessage: `Question: ${args.question}
+
+Historical Sources:
+${snippetContext}
+
+Provide a coherent response based on these sources. Speak as an advisor to the ruler of ${args.playerNation}.`,
+    });
+
+    return {
+      response: synthesizedResponse,
+      citations,
+      blockedCount,
+    };
+  },
+});
+
+// Simple LLM call for chat synthesis
+async function callChatLLM(args: {
+  systemPrompt: string;
+  userMessage: string;
+}): Promise<string> {
+  const openaiKey = process.env.OPENAI_API_KEY;
+
+  if (!openaiKey) {
+    // Fallback: just return a simple concatenation
+    console.warn("No OpenAI API key, falling back to simple response");
+    return "The archives speak of these matters, though the details require careful study.";
+  }
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini", // Fast and cheap for synthesis
+        messages: [
+          { role: "system", content: args.systemPrompt },
+          { role: "user", content: args.userMessage },
+        ],
+        max_tokens: 500,
+        temperature: 0.7,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error("OpenAI API error:", error);
+      return "The archives are difficult to interpret at this moment.";
+    }
+
+    const data = await response.json();
+    return data.choices[0]?.message?.content ?? "No response from the archives.";
+  } catch (e) {
+    console.error("LLM call failed:", e);
+    return "The archives are temporarily unavailable.";
+  }
+}
 
 // Helper function to generate embeddings
 // In production, this would call Voyage AI or OpenAI

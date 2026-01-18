@@ -38,6 +38,12 @@ export default defineSchema({
         previousOwner: v.union(v.id("players"), v.null()),
       })
     ),
+    // Spectator mode for AI vs AI games - shows all agent thinking
+    isSpectatorMode: v.optional(v.boolean()),
+    // Risk card system
+    cardTradeCount: v.optional(v.number()), // Global escalation counter for card trades
+    conqueredThisTurn: v.optional(v.boolean()), // Track if current player conquered a territory
+    mustTradeCards: v.optional(v.boolean()), // Force trade if holding 5+ cards
   })
     .index("by_status", ["status"])
     .index("by_createdAt", ["createdAt"]),
@@ -53,6 +59,12 @@ export default defineSchema({
     isEliminated: v.boolean(),
     joinedAt: v.number(),
     setupTroopsRemaining: v.optional(v.number()), // Troops left to place during setup phase
+    // Risk cards (earned by conquering territories)
+    cards: v.optional(v.array(v.union(
+      v.literal("infantry"),
+      v.literal("cavalry"),
+      v.literal("artillery")
+    ))),
   })
     .index("by_game", ["gameId"])
     .index("by_user", ["oderId"]),
@@ -88,10 +100,12 @@ export default defineSchema({
     tags: v.array(v.string()), // ["battle", "treaty", "leader"]
     title: v.optional(v.string()),
     participants: v.optional(v.array(v.string())), // Nations involved
+    contentHash: v.optional(v.string()), // MD5 hash for deduplication
   })
     .index("by_date", ["eventDate"])
     .index("by_region", ["region"])
     .index("by_source", ["source"])
+    .index("by_content_hash", ["contentHash"]) // For dedup lookups
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1024, // Voyage AI
@@ -136,6 +150,20 @@ export default defineSchema({
     .index("by_scenario", ["scenario"])
     .index("by_model", ["winnerModel"]),
 
+  // Agent performance evaluations
+  agentEvaluations: defineTable({
+    gameId: v.id("games"),
+    playerId: v.id("players"),
+    nation: v.string(),
+    model: v.optional(v.string()),
+    isHuman: v.boolean(),
+    evaluation: v.any(), // AgentEvalResult object
+    timestamp: v.number(),
+  })
+    .index("by_game", ["gameId"])
+    .index("by_player", ["playerId"])
+    .index("by_model", ["model"]),
+
   // Diplomacy messages
   negotiations: defineTable({
     gameId: v.id("games"),
@@ -144,9 +172,21 @@ export default defineSchema({
     recipientId: v.id("players"),
     message: v.string(),
     timestamp: v.number(),
+    // Negotiation response handling
+    status: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("accepted"),
+        v.literal("rejected"),
+        v.literal("countered")
+      )
+    ),
+    responseMessage: v.optional(v.string()),
+    respondedAt: v.optional(v.number()),
   })
     .index("by_game", ["gameId"])
-    .index("by_game_turn", ["gameId", "turn"]),
+    .index("by_game_turn", ["gameId", "turn"])
+    .index("by_recipient", ["gameId", "recipientId"]),
 
   // Agent observability - activity tracking
   agentActivity: defineTable({
@@ -227,7 +267,30 @@ export default defineSchema({
         })
       )
     ),
+    // Store actual snippets with their citations
+    snippets: v.optional(
+      v.array(
+        v.object({
+          title: v.optional(v.string()),
+          content: v.string(),
+          source: v.string(),
+          sourceUrl: v.optional(v.string()),
+          date: v.string(),
+        })
+      )
+    ),
   })
     .index("by_activity", ["activityId"])
     .index("by_tool_call", ["toolCallId"]),
+
+  // Agent private strategic notes
+  agentNotes: defineTable({
+    gameId: v.id("games"),
+    playerId: v.id("players"),
+    turn: v.number(),
+    content: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_game_player", ["gameId", "playerId"])
+    .index("by_game_turn", ["gameId", "turn"]),
 });

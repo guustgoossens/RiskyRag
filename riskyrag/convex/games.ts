@@ -207,13 +207,13 @@ export const nextTurn = mutation({
       };
     }
 
-    // Check for winner (75% territory domination)
+    // Check for winner (100% territory domination)
     const allTerritories = await ctx.db
       .query("territories")
       .withIndex("by_game", (q) => q.eq("gameId", args.gameId))
       .collect();
     const totalTerritories = allTerritories.length;
-    const dominationThreshold = Math.ceil(totalTerritories * 0.75);
+    const dominationThreshold = totalTerritories;
 
     for (const player of players) {
       const playerTerritories = allTerritories.filter(
@@ -232,6 +232,30 @@ export const nextTurn = mutation({
           territoriesControlled: playerTerritories,
           totalTerritories,
         };
+      }
+    }
+
+    // Award card to current player if they conquered a territory this turn
+    if (game.conqueredThisTurn && game.currentPlayerId) {
+      const currentPlayer = await ctx.db.get(game.currentPlayerId);
+      if (currentPlayer) {
+        const cardTypes = ["infantry", "cavalry", "artillery"] as const;
+        const randomCard = cardTypes[Math.floor(Math.random() * 3)];
+        const currentCards = (currentPlayer.cards ?? []) as typeof cardTypes[number][];
+
+        await ctx.db.patch(game.currentPlayerId, {
+          cards: [...currentCards, randomCard],
+        });
+
+        // Log card draw
+        await ctx.db.insert("gameLog", {
+          gameId: args.gameId,
+          turn: game.currentTurn,
+          playerId: game.currentPlayerId,
+          action: "draw_card",
+          details: { cardType: randomCard, totalCards: currentCards.length + 1 },
+          timestamp: Date.now(),
+        });
       }
     }
 
@@ -260,6 +284,10 @@ export const nextTurn = mutation({
         : 30 * 24 * 60 * 60 * 1000; // Default: ~30 days
     const newDate = game.currentDate + timeAdvancement;
 
+    // Check if next player must trade cards (5+ cards)
+    const nextPlayerCards = (nextPlayer.cards ?? []) as string[];
+    const mustTradeCards = nextPlayerCards.length >= 5;
+
     await ctx.db.patch(args.gameId, {
       currentTurn: game.currentTurn + 1,
       currentPlayerId: nextPlayer._id,
@@ -268,6 +296,8 @@ export const nextTurn = mutation({
       reinforcementsRemaining: baseReinforcements,
       fortifyUsed: false,
       pendingConquest: undefined,
+      conqueredThisTurn: false, // Reset for next player
+      mustTradeCards, // Force trade if next player has 5+ cards
     });
 
     // If next player is AI, trigger their turn
@@ -311,7 +341,17 @@ export const advancePhase = mutation({
           `Must place all ${game.reinforcementsRemaining} remaining reinforcements first`
         );
       }
-      await ctx.db.patch(args.gameId, { phase: "attack" });
+      // Must trade cards if holding 5+
+      if (game.mustTradeCards) {
+        const player = await ctx.db.get(args.playerId);
+        const cardCount = (player?.cards ?? []).length;
+        if (cardCount >= 5) {
+          throw new Error(
+            `Must trade cards first! You have ${cardCount} cards (max 4 allowed).`
+          );
+        }
+      }
+      await ctx.db.patch(args.gameId, { phase: "attack", mustTradeCards: false });
       return { success: true, newPhase: "attack" };
     }
 

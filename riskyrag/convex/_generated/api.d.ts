@@ -9,8 +9,10 @@
  */
 
 import type * as agent from "../agent.js";
+import type * as agentNotes from "../agentNotes.js";
 import type * as agentStreaming from "../agentStreaming.js";
 import type * as benchmarks from "../benchmarks.js";
+import type * as evals from "../evals.js";
 import type * as gameLog from "../gameLog.js";
 import type * as games from "../games.js";
 import type * as negotiations from "../negotiations.js";
@@ -19,6 +21,7 @@ import type * as rag from "../rag.js";
 import type * as scenarios from "../scenarios.js";
 import type * as seed from "../seed.js";
 import type * as territories from "../territories.js";
+import type * as tournament from "../tournament.js";
 
 import type {
   ApiFromModules,
@@ -28,8 +31,10 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   agent: typeof agent;
+  agentNotes: typeof agentNotes;
   agentStreaming: typeof agentStreaming;
   benchmarks: typeof benchmarks;
+  evals: typeof evals;
   gameLog: typeof gameLog;
   games: typeof games;
   negotiations: typeof negotiations;
@@ -38,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   scenarios: typeof scenarios;
   seed: typeof seed;
   territories: typeof territories;
+  tournament: typeof tournament;
 }>;
 
 /**

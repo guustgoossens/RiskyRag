@@ -1,66 +1,92 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Shield,
   Swords,
   Bot,
   ChevronRight,
+  ChevronLeft,
   Check,
   BrainCircuit,
+  Eye,
+  User,
 } from "lucide-react";
 import { useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 
+// Import scenario images
+import constantinople1 from "@/assets/images/prompts/constantinople/Gemini_Generated_Image_xsbl8yxsbl8yxsbl.png";
+import constantinople2 from "@/assets/images/prompts/constantinople/Gemini_Generated_Image_9skble9skble9skb.png";
+import constantinople3 from "@/assets/images/prompts/constantinople/Gemini_Generated_Image_p2eknwp2eknwp2ek.png";
+import constantinople4 from "@/assets/images/prompts/constantinople/Gemini_Generated_Image_pa6ih0pa6ih0pa6i.png";
+import constantinople5 from "@/assets/images/prompts/constantinople/Gemini_Generated_Image_xeohavxeohavxeoh.png";
+
+import civilwar1 from "@/assets/images/prompts/civil-war/Gemini_Generated_Image_tnof1ptnof1ptnof.png";
+import civilwar2 from "@/assets/images/prompts/civil-war/Gemini_Generated_Image_3w0b613w0b613w0b.png";
+import civilwar3 from "@/assets/images/prompts/civil-war/Gemini_Generated_Image_7n4dli7n4dli7n4d.png";
+import civilwar4 from "@/assets/images/prompts/civil-war/Gemini_Generated_Image_ktr6cmktr6cmktr6.png";
+import civilwar5 from "@/assets/images/prompts/civil-war/Gemini_Generated_Image_m0xgc0m0xgc0m0xg.png";
+
+import future1 from "@/assets/images/prompts/2026/Gemini_Generated_Image_ktlczktlczktlczk.png";
+import future2 from "@/assets/images/prompts/2026/Gemini_Generated_Image_khrkt8khrkt8khrk.png";
+import future3 from "@/assets/images/prompts/2026/Gemini_Generated_Image_9gzwq59gzwq59gzw.png";
+import future4 from "@/assets/images/prompts/2026/Gemini_Generated_Image_ly541jly541jly54.png";
+import future5 from "@/assets/images/prompts/2026/Gemini_Generated_Image_tx3wj2tx3wj2tx3w.png";
+
 /**
  * RISKYRAG LOBBY / SCENARIO SELECTION
- * Connected to Convex backend for real game creation.
+ * Full-width scenario carousel with immersive hover effects.
  */
 
 // --- Design System Constants ---
 const COLORS = {
-  voidNavy: "bg-[#0F172A]",
-  voidNavyDark: "bg-[#0F172A]",
-  parchment: "bg-[#F5E6CC]",
-  parchmentDark: "bg-[#E6D5B8]",
-  imperialGold: "text-[#D4AF37]",
-  imperialGoldBorder: "border-[#D4AF37]",
-  cognitiveTeal: "text-[#00FFA3]",
-  cognitiveTealBorder: "border-[#00FFA3]",
-  cognitiveTealBg: "bg-[#00FFA3]",
-  warCrimson: "text-[#C0392B]",
+  voidNavy: "#0F172A",
+  parchment: "#F5E6CC",
+  imperialGold: "#D4AF37",
+  cognitiveTeal: "#00FFA3",
+  warCrimson: "#C0392B",
+  safeEmerald: "#27AE60",
 };
 
-// --- Scenario Data (maps to Convex scenarios) ---
-// Only scenarios that are implemented in convex/scenarios.ts
+// --- Scenario Data ---
+// These must match the nations defined in convex/scenarios.ts
 const SCENARIOS = [
   {
     id: "1453",
     year: 1453,
     title: "Fall of Constantinople",
+    subtitle: "The End of an Empire",
     description:
       "The Ottoman Empire besieges the Byzantine capital. The end of the Middle Ages is at hand. Will the walls hold?",
-    imageColor: "bg-red-900",
+    images: [constantinople1, constantinople2, constantinople3, constantinople4, constantinople5],
     factions: [
       {
         id: "ottoman",
         name: "Ottoman Empire",
-        color: "#B91C1C",
+        color: "#2E7D32",
         type: "aggressor",
         strength: "Overwhelming numbers, Janissaries",
       },
       {
         id: "byzantine",
         name: "Byzantine Empire",
-        color: "#7E22CE",
+        color: "#7B1FA2",
         type: "defender",
         strength: "The Theodosian Walls, Greek Fire",
       },
       {
         id: "venice",
-        name: "Republic of Venice",
-        color: "#0369A1",
+        name: "Venice",
+        color: "#1565C0",
         type: "mercantile",
         strength: "Naval Superiority, Wealth",
+      },
+      {
+        id: "genoa",
+        name: "Genoa",
+        color: "#C62828",
+        type: "mercantile",
+        strength: "Trade Networks, Galata Colony",
       },
     ],
   },
@@ -68,9 +94,10 @@ const SCENARIOS = [
     id: "1861",
     year: 1861,
     title: "American Civil War",
+    subtitle: "A House Divided",
     description:
       "The Union fights to preserve the nation while the Confederacy battles for independence. Control of the Mississippi will decide the war.",
-    imageColor: "bg-gradient-to-br from-blue-900 to-gray-700",
+    images: [civilwar1, civilwar2, civilwar3, civilwar4, civilwar5],
     factions: [
       {
         id: "union",
@@ -88,30 +115,113 @@ const SCENARIOS = [
       },
     ],
   },
+  {
+    id: "2026",
+    year: 2026,
+    title: "World Order 2026",
+    subtitle: "The Multipolar Moment",
+    description:
+      "The post-Cold War consensus has shattered. Three wars rage while great power competition intensifies. The multipolar world order hangs in the balance.",
+    images: [future1, future2, future3, future4, future5],
+    factions: [
+      {
+        id: "usa",
+        name: "United States",
+        color: "#1E40AF",
+        type: "superpower",
+        strength: "Military Supremacy, Global Reach",
+      },
+      {
+        id: "china",
+        name: "People's Republic of China",
+        color: "#DC2626",
+        type: "superpower",
+        strength: "Manufacturing, Largest Navy",
+      },
+      {
+        id: "russia",
+        name: "Russian Federation",
+        color: "#1F2937",
+        type: "great_power",
+        strength: "Nuclear Arsenal, Ukraine Front",
+      },
+      {
+        id: "eu",
+        name: "European Union",
+        color: "#1D4ED8",
+        type: "alliance",
+        strength: "Economic Power, NATO Pillar",
+      },
+      {
+        id: "uk",
+        name: "United Kingdom",
+        color: "#1E3A8A",
+        type: "great_power",
+        strength: "Nuclear Power, AUKUS",
+      },
+      {
+        id: "india",
+        name: "Republic of India",
+        color: "#F97316",
+        type: "great_power",
+        strength: "Population, Multi-alignment",
+      },
+      {
+        id: "turkey",
+        name: "Republic of Turkey",
+        color: "#DC2626",
+        type: "regional",
+        strength: "NATO Army, Drone Power",
+      },
+      {
+        id: "saudi",
+        name: "Saudi-GCC Coalition",
+        color: "#15803D",
+        type: "regional",
+        strength: "Oil Wealth, BRICS Member",
+      },
+      {
+        id: "iran",
+        name: "Islamic Republic of Iran",
+        color: "#166534",
+        type: "regional",
+        strength: "Nuclear Program, Proxy Network",
+      },
+      {
+        id: "israel",
+        name: "State of Israel",
+        color: "#1E40AF",
+        type: "regional",
+        strength: "Military Tech, Nuclear Arsenal",
+      },
+      {
+        id: "brazil",
+        name: "Federative Republic of Brazil",
+        color: "#16A34A",
+        type: "regional",
+        strength: "BRICS Leader, S. America",
+      },
+    ],
+  },
 ];
 
+// OpenRouter models with CONFIRMED tool_choice support
+// IMPORTANT: Many free models support "tools" but NOT "tool_choice"
+// See: https://github.com/block/goose/issues/3054
 const AI_MODELS = [
-  {
-    id: "gpt4",
-    name: "Strategos-4 (GPT-4)",
-    desc: "Balanced, diplomatic, high strategic depth.",
-    complexity: "High",
-  },
-  {
-    id: "claude",
-    name: "Historian-3 (Claude)",
-    desc: "Cautious, historically accurate decisions.",
-    complexity: "Medium",
-  },
-  {
-    id: "llama",
-    name: "Warlord-3.2 (Llama)",
-    desc: "Aggressive, expansionist, rapid turns.",
-    complexity: "High",
-  },
+  // === CONFIRMED WORKING FREE MODELS ===
+  { id: "devstral", name: "Devstral (Free)", desc: "Mistral dev-focused, confirmed tool_choice.", complexity: "Medium" },
+  { id: "trinity-mini", name: "Trinity Mini (Free)", desc: "Arcee 26B MoE, confirmed tool_choice.", complexity: "Low" },
+  { id: "tng-r1t-chimera", name: "TNG R1T Chimera (Free)", desc: "TNG's R1T, confirmed tool_choice.", complexity: "Medium" },
+  { id: "qwen3-coder", name: "Qwen3 Coder (Free)", desc: "Qwen3 Coder, confirmed tool_choice.", complexity: "Medium" },
+  // === PAID MODELS (low cost, reliable) ===
+  { id: "llama-3.3-70b", name: "Llama 3.3 70B", desc: "Meta's best, ~$0.10/M tokens.", complexity: "High" },
+  { id: "qwen3-32b", name: "Qwen3 32B", desc: "Strong reasoning, ~$0.08/M tokens.", complexity: "Medium" },
+  { id: "gemma-3-27b", name: "Gemma 3 27B", desc: "Google's 27B, ~$0.10/M tokens.", complexity: "Medium" },
+  { id: "mistral-small", name: "Mistral Small 24B", desc: "Fast + reliable, ~$0.10/M tokens.", complexity: "Medium" },
 ];
 
-// Map UI faction IDs to Convex nation names
+// Maps lobby faction IDs to the nation names used in convex/scenarios.ts
 const FACTION_TO_NATION: Record<string, string> = {
   // 1453 - Fall of Constantinople
   ottoman: "Ottoman Empire",
@@ -121,20 +231,322 @@ const FACTION_TO_NATION: Record<string, string> = {
   // 1861 - American Civil War
   union: "Union",
   confederacy: "Confederacy",
+  // 2026 - World Order
+  usa: "United States",
+  china: "People's Republic of China",
+  russia: "Russian Federation",
+  eu: "European Union",
+  uk: "United Kingdom",
+  india: "Republic of India",
+  turkey: "Republic of Turkey",
+  saudi: "Saudi-GCC Coalition",
+  iran: "Islamic Republic of Iran",
+  israel: "State of Israel",
+  brazil: "Federative Republic of Brazil",
 };
 
-// Map UI model IDs to actual model identifiers
-const MODEL_ID_TO_NAME: Record<string, string> = {
-  gpt4: "gpt-4o",
-  claude: "claude-3-5-sonnet-20241022",
-  llama: "llama-3.2-70b",
-};
+type GameMode = "play" | "spectate";
 
+// --- Image Carousel Component ---
+function ImageCarousel({
+  images,
+  isActive,
+}: {
+  images: string[];
+  isActive: boolean;
+}) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  // Auto-advance carousel when active
+  useEffect(() => {
+    if (!isActive) {
+      setCurrentIndex(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setIsTransitioning(true);
+      setTimeout(() => {
+        setCurrentIndex((prev) => (prev + 1) % images.length);
+        setIsTransitioning(false);
+      }, 300);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [isActive, images.length]);
+
+  const goTo = useCallback((index: number) => {
+    setIsTransitioning(true);
+    setTimeout(() => {
+      setCurrentIndex(index);
+      setIsTransitioning(false);
+    }, 300);
+  }, []);
+
+  const goNext = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    goTo((currentIndex + 1) % images.length);
+  }, [currentIndex, images.length, goTo]);
+
+  const goPrev = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    goTo((currentIndex - 1 + images.length) % images.length);
+  }, [currentIndex, images.length, goTo]);
+
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      {/* Images */}
+      {images.map((img, idx) => (
+        <div
+          key={idx}
+          className={`absolute inset-0 transition-all duration-700 ease-out ${
+            idx === currentIndex
+              ? "opacity-100 scale-100"
+              : "opacity-0 scale-105"
+          } ${isTransitioning && idx === currentIndex ? "opacity-50" : ""}`}
+        >
+          <img
+            src={img}
+            alt=""
+            className="w-full h-full object-cover"
+          />
+        </div>
+      ))}
+
+      {/* Navigation - only show when active */}
+      {isActive && (
+        <>
+          {/* Arrow buttons - z-40 to be above all overlays */}
+          <button
+            onClick={goPrev}
+            className="absolute left-4 top-1/2 -translate-y-1/2 z-40
+              w-12 h-12 rounded-full bg-black/50 backdrop-blur-sm
+              flex items-center justify-center
+              opacity-70 hover:opacity-100 transition-all duration-300
+              hover:bg-black/70 hover:scale-110 border border-white/20
+              active:scale-95"
+          >
+            <ChevronLeft className="w-6 h-6 text-white" />
+          </button>
+          <button
+            onClick={goNext}
+            className="absolute right-4 top-1/2 -translate-y-1/2 z-40
+              w-12 h-12 rounded-full bg-black/50 backdrop-blur-sm
+              flex items-center justify-center
+              opacity-70 hover:opacity-100 transition-all duration-300
+              hover:bg-black/70 hover:scale-110 border border-white/20
+              active:scale-95"
+          >
+            <ChevronRight className="w-6 h-6 text-white" />
+          </button>
+
+          {/* Dots indicator */}
+          <div className="absolute bottom-52 left-1/2 -translate-x-1/2 z-40 flex gap-2">
+            {images.map((_, idx) => (
+              <button
+                key={idx}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  goTo(idx);
+                }}
+                className={`h-2 rounded-full transition-all duration-300 ${
+                  idx === currentIndex
+                    ? "bg-[#D4AF37] w-8"
+                    : "bg-white/40 hover:bg-white/60 w-2"
+                }`}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// --- Scenario Card Component ---
+function ScenarioCard({
+  scenario,
+  isHovered,
+  isSelected,
+  onHover,
+  onSelect,
+}: {
+  scenario: typeof SCENARIOS[0];
+  isHovered: boolean;
+  isSelected: boolean;
+  onHover: (id: string | null) => void;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <button
+      onClick={() => onSelect(scenario.id)}
+      onMouseEnter={() => onHover(scenario.id)}
+      onMouseLeave={() => onHover(null)}
+      className={`
+        relative flex-1 h-full group cursor-pointer overflow-hidden
+        transition-all duration-700 ease-out
+        ${isHovered ? "flex-[1.5]" : "flex-1"}
+      `}
+    >
+      {/* Image Layer */}
+      <ImageCarousel images={scenario.images} isActive={isHovered} />
+
+      {/* Dark Overlay - Strong when not hovered */}
+      <div
+        className={`
+          absolute inset-0 z-10 transition-all duration-700 ease-out
+          ${isHovered
+            ? "bg-gradient-to-t from-black/90 via-black/40 to-black/10"
+            : "bg-black/60"
+          }
+        `}
+      />
+
+      {/* Vignette effect */}
+      <div
+        className={`
+          absolute inset-0 z-10 pointer-events-none transition-opacity duration-700
+          ${isHovered ? "opacity-0" : "opacity-100"}
+        `}
+        style={{
+          background: "radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.4) 100%)",
+        }}
+      />
+
+      {/* Selection border glow */}
+      {isSelected && (
+        <div
+          className="absolute inset-0 z-20 pointer-events-none"
+          style={{
+            boxShadow: `inset 0 0 0 3px ${COLORS.imperialGold}, inset 0 0 60px rgba(212, 175, 55, 0.3)`,
+          }}
+        />
+      )}
+
+      {/* Content Overlay */}
+      <div className="absolute inset-0 z-20 flex flex-col justify-end px-8 pb-12 pt-8">
+        {/* Year Badge - top right */}
+        <div
+          className={`
+            absolute top-8 right-8 transition-all duration-500
+            ${isHovered ? "opacity-100 translate-y-0" : "opacity-70 translate-y-0"}
+          `}
+        >
+          <div
+            className={`
+              px-4 py-2 backdrop-blur-sm border rounded
+              font-mono text-xl font-bold tracking-wider
+              transition-all duration-500
+              ${isHovered
+                ? "bg-[#00FFA3]/20 border-[#00FFA3]/50 text-[#00FFA3]"
+                : "bg-black/40 border-white/20 text-white/70"
+              }
+            `}
+          >
+            {scenario.year}
+          </div>
+        </div>
+
+        {/* Selection Check */}
+        {isSelected && (
+          <div
+            className="absolute top-8 left-8 w-10 h-10 rounded-full flex items-center justify-center
+              animate-bounce-short"
+            style={{ backgroundColor: COLORS.imperialGold }}
+          >
+            <Check className="w-6 h-6 text-[#0F172A]" strokeWidth={3} />
+          </div>
+        )}
+
+        {/* Text Content */}
+        <div
+          className={`
+            transition-all duration-700 ease-out
+            ${isHovered ? "translate-y-0 opacity-100" : "translate-y-4 opacity-80"}
+          `}
+        >
+          {/* Subtitle */}
+          <div
+            className={`
+              text-xs uppercase tracking-[0.3em] mb-3
+              transition-all duration-500
+              ${isHovered ? "text-[#D4AF37]" : "text-white/50"}
+            `}
+          >
+            {scenario.subtitle}
+          </div>
+
+          {/* Title */}
+          <h3
+            className={`
+              font-cinzel uppercase text-3xl md:text-4xl mb-5
+              transition-all duration-500 leading-tight
+              ${isHovered ? "text-[#F5E6CC]" : "text-white/80"}
+            `}
+            style={{ textShadow: "0 2px 20px rgba(0,0,0,0.8)" }}
+          >
+            {scenario.title}
+          </h3>
+
+          {/* Description - only visible on hover */}
+          <p
+            className={`
+              text-base leading-relaxed max-w-lg mb-8
+              transition-all duration-500
+              ${isHovered ? "opacity-100 text-slate-200" : "opacity-0 text-slate-500 h-0 mb-0"}
+            `}
+            style={{ textShadow: "0 1px 8px rgba(0,0,0,0.9)" }}
+          >
+            {scenario.description}
+          </p>
+
+          {/* Faction Pills - only visible on hover */}
+          <div
+            className={`
+              flex flex-wrap gap-3 transition-all duration-500
+              ${isHovered ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 h-0"}
+            `}
+          >
+            {scenario.factions.map((f) => (
+              <span
+                key={f.id}
+                className="flex items-center gap-2 text-xs uppercase tracking-wider
+                  px-4 py-2 bg-black/50 backdrop-blur-sm border border-white/20
+                  text-slate-200 rounded-lg"
+              >
+                <span
+                  className="w-2.5 h-2.5 rounded-full"
+                  style={{ backgroundColor: f.color }}
+                />
+                {f.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom gradient line accent */}
+      <div
+        className={`
+          absolute bottom-0 left-0 right-0 h-1 z-30
+          transition-all duration-700
+          ${isHovered
+            ? "opacity-100 bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent"
+            : "opacity-0"
+          }
+        `}
+      />
+    </button>
+  );
+}
+
+// --- Main Lobby Component ---
 export default function Lobby() {
   const navigate = useNavigate();
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
+  const [gameMode, setGameMode] = useState<GameMode>("spectate");
   const [playerNationId, setPlayerNationId] = useState<string | null>(null);
-  const [opponents, setOpponents] = useState<Record<string, { enabled?: boolean; model: string }>>({});
+  const [factionModels, setFactionModels] = useState<Record<string, string>>({});
   const [isLaunching, setIsLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -146,59 +558,47 @@ export default function Lobby() {
 
   const activeScenario = SCENARIOS.find((s) => s.id === selectedScenarioId);
 
-  // Initialize opponents when scenario changes
+  // Initialize faction models when scenario changes
   useEffect(() => {
-    if (activeScenario && playerNationId) {
-      const initialOpponents: Record<string, { enabled?: boolean; model: string }> = {};
-      activeScenario.factions
-        .filter((f) => f.id !== playerNationId)
-        .forEach((f) => {
-          initialOpponents[f.id] = { enabled: true, model: "gpt4" };
-        });
-      setOpponents(initialOpponents);
+    if (activeScenario) {
+      const initialModels: Record<string, string> = {};
+      activeScenario.factions.forEach((f, idx) => {
+        initialModels[f.id] = idx === 0 ? "devstral" : "trinity-mini";
+      });
+      setFactionModels(initialModels);
     }
-  }, [selectedScenarioId, playerNationId]);
+  }, [selectedScenarioId]);
+
+  const handleSelectScenario = (id: string) => {
+    setSelectedScenarioId(id);
+    setPlayerNationId(null);
+  };
 
   const handleStartGame = async () => {
-    if (!selectedScenarioId || !playerNationId) return;
+    if (!selectedScenarioId) return;
+    if (gameMode === "play" && !playerNationId) return;
 
     setIsLaunching(true);
     setError(null);
 
     try {
-      // 1. Create the game in Convex
-      const gameId = await createGame({
-        scenario: selectedScenarioId,
-      });
+      const gameId = await createGame({ scenario: selectedScenarioId });
 
-      // 2. Join as the human player
-      const playerNation = FACTION_TO_NATION[playerNationId];
-      if (!playerNation) {
-        throw new Error(`Unknown faction: ${playerNationId}`);
+      if (gameMode === "play" && playerNationId) {
+        const playerNation = FACTION_TO_NATION[playerNationId];
+        if (!playerNation) throw new Error(`Unknown faction: ${playerNationId}`);
+        await joinGame({ gameId, nation: playerNation });
       }
 
-      await joinGame({
-        gameId,
-        nation: playerNation,
-      });
-
-      // 3. Build AI model preferences from opponent selections
       const aiModels: Record<string, string> = {};
-      for (const [factionId, config] of Object.entries(opponents)) {
+      for (const [factionId, model] of Object.entries(factionModels)) {
+        if (gameMode === "play" && factionId === playerNationId) continue;
         const nationName = FACTION_TO_NATION[factionId];
-        const modelName = MODEL_ID_TO_NAME[config.model] || "gpt-4o";
-        if (nationName) {
-          aiModels[nationName] = modelName;
-        }
+        if (nationName) aiModels[nationName] = model || "devstral";
       }
 
-      // 4. Initialize the game (creates AI players and territories)
       await initializeGame({ gameId, aiModels });
-
-      // 5. Start the game
       await startGame({ gameId });
-
-      // 6. Navigate to the game
       navigate({ to: "/game/$gameId", params: { gameId } });
     } catch (err) {
       console.error("Failed to create game:", err);
@@ -209,166 +609,114 @@ export default function Lobby() {
 
   return (
     <div
-      className={`min-h-screen ${COLORS.voidNavy} text-slate-200 font-sans selection:bg-[#D4AF37] selection:text-slate-900 overflow-x-hidden`}
+      className="min-h-screen text-slate-200 font-sans selection:bg-[#D4AF37] selection:text-slate-900"
+      style={{ backgroundColor: COLORS.voidNavy }}
     >
-      {/* --- Global Ambient Effects --- */}
-      <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-800/20 via-slate-900/50 to-slate-950 z-0" />
-      <div className="fixed inset-0 pointer-events-none opacity-5 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] z-0" />
-
       {/* --- Main Layout --- */}
-      <div className="relative z-10 container mx-auto px-6 py-8 h-screen flex flex-col">
+      <div className="h-screen flex flex-col">
         {/* Header */}
-        <header className="flex justify-between items-center mb-12">
+        <header className="relative z-50 flex justify-between items-center px-8 py-6 bg-[#0F172A]/80 backdrop-blur-sm border-b border-white/5">
           <Link to="/" className="flex items-center gap-4 hover:opacity-80 transition-opacity">
-            <div
-              className={`w-10 h-10 border-2 ${COLORS.imperialGoldBorder} flex items-center justify-center rounded-sm bg-slate-900`}
-            >
-              <Shield className={`w-6 h-6 ${COLORS.imperialGold}`} />
+            <div className="w-10 h-10 border-2 border-[#D4AF37] flex items-center justify-center rounded-sm bg-slate-900">
+              <Shield className="w-6 h-6 text-[#D4AF37]" />
             </div>
             <div>
-              <h1
-                className={`font-cinzel uppercase text-2xl tracking-[0.2em] ${COLORS.imperialGold}`}
-              >
+              <h1 className="font-cinzel uppercase text-2xl tracking-[0.2em] text-[#D4AF37]">
                 RISKYRAG
               </h1>
               <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-[#27AE60] animate-pulse"></span>
+                <span className="w-2 h-2 rounded-full bg-[#27AE60] animate-pulse" />
                 <span className="text-xs font-mono text-slate-500 uppercase tracking-widest">
                   System Online
                 </span>
               </div>
             </div>
           </Link>
+
           <div className="flex items-center gap-6">
             <div className="text-right hidden md:block">
-              <div className="text-xs font-mono text-[#00FFA3]">
-                TEMPORAL ENGINE: ACTIVE
-              </div>
+              <div className="text-xs font-mono text-[#00FFA3]">TEMPORAL ENGINE: ACTIVE</div>
               <div className="text-xs text-slate-500">v2.4.0-alpha</div>
             </div>
           </div>
         </header>
 
-        {/* Content Area - Split Layout */}
-        <div className="flex-1 flex flex-col lg:flex-row gap-8 items-start lg:items-stretch min-h-0">
-          {/* Left/Top: Scenario Carousel */}
-          <section
-            className={`flex-1 w-full transition-all duration-700 ${selectedScenarioId ? "lg:w-1/2" : "lg:w-full"}`}
+        {/* Main Content Area */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Scenario Cards Section */}
+          <div
+            className={`
+              flex transition-all duration-700 ease-out
+              ${selectedScenarioId ? "w-2/3" : "w-full"}
+            `}
           >
-            <div className="text-center mb-8">
-              <h2 className="font-cinzel uppercase text-4xl text-slate-100 mb-2">
-                SELECT CAMPAIGN
+            {SCENARIOS.map((scenario) => (
+              <ScenarioCard
+                key={scenario.id}
+                scenario={scenario}
+                isHovered={hoveredId === scenario.id}
+                isSelected={selectedScenarioId === scenario.id}
+                onHover={setHoveredId}
+                onSelect={handleSelectScenario}
+              />
+            ))}
+          </div>
+
+          {/* Configuration Panel */}
+          {activeScenario && (
+            <div className="w-1/3 bg-[#0F172A]/95 backdrop-blur-md border-l border-white/5 p-8 flex flex-col overflow-y-auto animate-slide-in-right">
+              <h2 className="font-mono text-[#00FFA3] text-sm uppercase tracking-widest mb-6 flex items-center gap-2">
+                <BrainCircuit size={16} />
+                Match Configuration
               </h2>
-              <p className="font-mono text-sm text-[#00FFA3]/70">
-                Choose your point of divergence.
-              </p>
-            </div>
 
-            <div className="flex flex-col md:flex-row gap-6 justify-center items-center h-full max-h-[600px]">
-              {SCENARIOS.map((scenario) => {
-                const isSelected = selectedScenarioId === scenario.id;
-                const isInactive = selectedScenarioId && !isSelected;
-
-                return (
+              {/* Game Mode Toggle */}
+              <div className="mb-6">
+                <div className="flex bg-slate-900/80 rounded-lg p-1 border border-slate-700">
                   <button
-                    key={scenario.id}
                     onClick={() => {
-                      setSelectedScenarioId(scenario.id);
-                      setPlayerNationId(null); // Reset player choice
+                      setGameMode("spectate");
+                      setPlayerNationId(null);
                     }}
                     className={`
-                      relative group transition-all duration-500 ease-out text-left
-                      w-full md:w-[320px]
-                      ${isSelected ? "h-[500px] md:scale-105 z-20" : "h-[400px] opacity-80 hover:opacity-100"}
-                      ${isInactive ? "opacity-40 grayscale scale-95" : ""}
-                      rounded-lg overflow-hidden border-2
-                      ${
-                        isSelected
-                          ? "border-[#D4AF37] shadow-[0_0_30px_rgba(212,175,55,0.3)]"
-                          : "border-slate-700 hover:border-[#D4AF37]/50"
+                      flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md
+                      font-mono text-sm transition-all duration-200
+                      ${gameMode === "spectate"
+                        ? "bg-[#00FFA3]/20 text-[#00FFA3] border border-[#00FFA3]/30"
+                        : "text-slate-400 hover:text-slate-200"
                       }
                     `}
                   >
-                    {/* Scenario Art Placeholder */}
-                    <div
-                      className={`absolute inset-0 ${scenario.imageColor} mix-blend-multiply opacity-60 transition-transform duration-700 group-hover:scale-110`}
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/60 to-transparent" />
-
-                    {/* Content */}
-                    <div className="absolute bottom-0 left-0 right-0 p-6 flex flex-col h-full justify-end">
-                      {/* Top Year Badge */}
-                      <div className="absolute top-6 right-6">
-                        <div
-                          className={`
-                           px-3 py-1 border border-[#00FFA3]/50 bg-slate-900/80 backdrop-blur-sm
-                           text-[#00FFA3] font-mono text-lg font-bold
-                           ${isSelected ? "animate-pulse" : ""}
-                         `}
-                        >
-                          {scenario.year}
-                        </div>
-                      </div>
-
-                      <div className="transform transition-transform duration-300 group-hover:-translate-y-2">
-                        <h3
-                          className={`font-cinzel uppercase text-2xl mb-2 text-[#F5E6CC]`}
-                        >
-                          {scenario.title}
-                        </h3>
-                        <p
-                          className={`text-sm font-sans leading-relaxed mb-4 ${isSelected ? "text-slate-300" : "text-slate-500 line-clamp-3"}`}
-                        >
-                          {scenario.description}
-                        </p>
-
-                        {/* Faction Pills */}
-                        <div className="flex flex-wrap gap-2">
-                          {scenario.factions.map((f) => (
-                            <span
-                              key={f.id}
-                              className="text-[10px] uppercase tracking-wider px-2 py-1 bg-slate-800/80 border border-slate-700 text-slate-400 rounded"
-                            >
-                              {f.name}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Selection Check */}
-                      {isSelected && (
-                        <div className="absolute top-6 left-6 w-8 h-8 bg-[#D4AF37] text-slate-900 flex items-center justify-center rounded-full shadow-lg animate-bounce-short">
-                          <Check size={18} strokeWidth={3} />
-                        </div>
-                      )}
-                    </div>
+                    <Eye size={16} />
+                    Spectate
                   </button>
-                );
-              })}
-            </div>
-          </section>
+                  <button
+                    onClick={() => setGameMode("play")}
+                    className={`
+                      flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md
+                      font-mono text-sm transition-all duration-200
+                      ${gameMode === "play"
+                        ? "bg-[#D4AF37]/20 text-[#D4AF37] border border-[#D4AF37]/30"
+                        : "text-slate-400 hover:text-slate-200"
+                      }
+                    `}
+                  >
+                    <User size={16} />
+                    Play
+                  </button>
+                </div>
+              </div>
 
-          {/* Right/Bottom: Configuration Panel */}
-          {/* Only visible when a scenario is selected */}
-          {activeScenario && (
-            <section className="flex-1 w-full lg:w-1/2 animate-slide-in-right">
-              <div className="h-full bg-slate-800/30 backdrop-blur-md border-l border-white/5 p-6 md:p-8 flex flex-col overflow-y-auto custom-scrollbar">
-                <h2 className="font-mono text-[#00FFA3] text-sm uppercase tracking-widest mb-6 flex items-center gap-2">
-                  <BrainCircuit size={16} />
-                  Match Configuration
-                </h2>
-
-                {/* 1. Player Nation Selection (The "Old World" UI) */}
-                <div className="mb-8">
+              {/* Player Nation Selection */}
+              {gameMode === "play" && (
+                <div className="mb-8 animate-fade-in-up">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="h-px bg-[#D4AF37]/30 flex-1" />
-                    <h3 className="font-serif text-[#D4AF37] text-xl">
-                      Select Your Nation
-                    </h3>
+                    <h3 className="font-serif text-[#D4AF37] text-lg">Select Your Nation</h3>
                     <div className="h-px bg-[#D4AF37]/30 flex-1" />
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid gap-3">
                     {activeScenario.factions.map((faction) => {
                       const isSelected = playerNationId === faction.id;
                       return (
@@ -377,27 +725,21 @@ export default function Lobby() {
                           onClick={() => setPlayerNationId(faction.id)}
                           className={`
                             relative p-4 text-left border-2 rounded transition-all duration-200
-                            ${
-                              isSelected
-                                ? "bg-[#F5E6CC] border-[#D4AF37] shadow-lg translate-x-1"
-                                : "bg-slate-800/50 border-slate-700 hover:border-slate-500 hover:bg-slate-800"
+                            ${isSelected
+                              ? "bg-[#F5E6CC] border-[#D4AF37] shadow-lg"
+                              : "bg-slate-800/50 border-slate-700 hover:border-slate-500"
                             }
                           `}
                         >
-                          <div className="flex items-start justify-between">
+                          <div className="flex items-center justify-between">
                             <div>
-                              <div
-                                className={`font-serif font-bold ${isSelected ? "text-[#0F172A]" : "text-slate-200"}`}
-                              >
+                              <div className={`font-serif font-bold ${isSelected ? "text-[#0F172A]" : "text-slate-200"}`}>
                                 {faction.name}
                               </div>
-                              <div
-                                className={`text-xs mt-1 ${isSelected ? "text-slate-700" : "text-slate-400"}`}
-                              >
+                              <div className={`text-xs mt-1 ${isSelected ? "text-slate-700" : "text-slate-400"}`}>
                                 {faction.strength}
                               </div>
                             </div>
-                            {/* Color Swatch */}
                             <div
                               className="w-4 h-4 rounded-full border border-black/20"
                               style={{ backgroundColor: faction.color }}
@@ -408,146 +750,115 @@ export default function Lobby() {
                     })}
                   </div>
                 </div>
+              )}
 
-                {/* 2. AI Opponents Setup (The "New World" UI) */}
-                {playerNationId && (
-                  <div className="flex-1 animate-fade-in-up">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="h-px bg-[#00FFA3]/30 flex-1" />
-                      <h3 className="font-mono text-[#00FFA3] text-sm tracking-wider">
-                        OPPOSING INTELLIGENCE
-                      </h3>
-                      <div className="h-px bg-[#00FFA3]/30 flex-1" />
-                    </div>
+              {/* AI Configuration */}
+              {(gameMode === "spectate" || (gameMode === "play" && playerNationId)) && (
+                <div className="flex-1 animate-fade-in-up">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="h-px bg-[#00FFA3]/30 flex-1" />
+                    <h3 className="font-mono text-[#00FFA3] text-sm tracking-wider">
+                      {gameMode === "spectate" ? "AI COMBATANTS" : "OPPOSING AI"}
+                    </h3>
+                    <div className="h-px bg-[#00FFA3]/30 flex-1" />
+                  </div>
 
-                    <div className="space-y-4 mb-8">
-                      {activeScenario.factions
-                        .filter((f) => f.id !== playerNationId)
-                        .map((faction) => (
-                          <div
-                            key={faction.id}
-                            className="bg-slate-900/60 border border-[#00FFA3]/20 rounded p-4 flex flex-col md:flex-row gap-4 items-center"
-                          >
-                            {/* Faction Info */}
-                            <div className="flex items-center gap-3 w-full md:w-1/3">
-                              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-slate-800 text-slate-400 font-serif font-bold">
-                                {faction.name.charAt(0)}
-                              </div>
-                              <span className="text-slate-300 font-serif text-sm">
-                                {faction.name}
-                              </span>
+                  <div className="space-y-4 mb-8">
+                    {activeScenario.factions
+                      .filter((f) => gameMode === "spectate" || f.id !== playerNationId)
+                      .map((faction) => (
+                        <div
+                          key={faction.id}
+                          className="bg-slate-900/60 border border-[#00FFA3]/20 rounded p-4"
+                        >
+                          <div className="flex items-center gap-3 mb-3">
+                            <div
+                              className="w-8 h-8 rounded-full flex items-center justify-center font-serif font-bold text-white"
+                              style={{ backgroundColor: faction.color }}
+                            >
+                              {faction.name.charAt(0)}
                             </div>
+                            <span className="text-slate-300 font-serif text-sm">{faction.name}</span>
+                          </div>
 
-                            {/* AI Model Selector */}
-                            <div className="flex-1 w-full">
-                              <div className="relative">
-                                <Bot
-                                  size={14}
-                                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[#00FFA3]"
-                                />
-                                <select
-                                  className="w-full bg-slate-950 border border-slate-700 rounded px-10 py-2 text-xs font-mono text-slate-300 focus:border-[#00FFA3] focus:outline-none appearance-none cursor-pointer hover:bg-slate-900"
-                                  onChange={(e) => {
-                                    setOpponents((prev) => ({
-                                      ...prev,
-                                      [faction.id]: {
-                                        ...prev[faction.id],
-                                        model: e.target.value,
-                                      },
-                                    }));
-                                  }}
-                                  value={opponents[faction.id]?.model || "gpt4"}
-                                >
-                                  {AI_MODELS.map((model) => (
-                                    <option key={model.id} value={model.id}>
-                                      {model.name}
-                                    </option>
-                                  ))}
-                                </select>
-                                {/* Custom arrow to avoid browser default ugly one */}
-                                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
-                                  <ChevronRight
-                                    size={12}
-                                    className="rotate-90"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Temporal Knowledge Badge */}
-                            <div className="hidden md:flex flex-col items-end min-w-[100px]">
-                              <span className="text-[10px] text-slate-500 font-mono uppercase">
-                                Knowledge Cap
-                              </span>
-                              <span className="text-xs text-[#00FFA3] font-mono border border-[#00FFA3]/30 px-2 rounded bg-[#00FFA3]/5">
-                                ≤ {activeScenario.year}
-                              </span>
+                          <div className="relative">
+                            <Bot size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#00FFA3]" />
+                            <select
+                              className="w-full bg-slate-950 border border-slate-700 rounded px-10 py-2 text-xs font-mono text-slate-300 focus:border-[#00FFA3] focus:outline-none appearance-none cursor-pointer hover:bg-slate-900"
+                              onChange={(e) => setFactionModels((prev) => ({ ...prev, [faction.id]: e.target.value }))}
+                              value={factionModels[faction.id] || "devstral"}
+                            >
+                              {AI_MODELS.map((model) => (
+                                <option key={model.id} value={model.id}>{model.name}</option>
+                              ))}
+                            </select>
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                              <ChevronRight size={12} className="rotate-90" />
                             </div>
                           </div>
-                        ))}
-                    </div>
 
-                    {/* Launch Button */}
-                    <div className="mt-auto pt-6 border-t border-slate-700">
-                      {error && (
-                        <div className="mb-4 p-3 bg-red-900/30 border border-red-500/50 rounded text-red-400 text-sm">
-                          {error}
+                          <div className="mt-2 flex justify-end">
+                            <span className="text-xs text-[#00FFA3] font-mono border border-[#00FFA3]/30 px-2 rounded bg-[#00FFA3]/5">
+                              Knowledge ≤ {activeScenario.year}
+                            </span>
+                          </div>
                         </div>
-                      )}
-                      <button
-                        onClick={handleStartGame}
-                        disabled={isLaunching}
-                        className={`
-                          w-full group relative overflow-hidden rounded py-4 px-6
-                          flex items-center justify-center gap-3
-                          transition-all duration-300
-                          ${isLaunching ? "bg-slate-800 cursor-wait" : "bg-[#D4AF37] hover:bg-[#F5E6CC] shadow-[0_0_20px_rgba(212,175,55,0.4)] hover:shadow-[0_0_30px_rgba(212,175,55,0.6)]"}
-                        `}
-                      >
-                        {isLaunching ? (
-                          <>
-                            <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-                            <span className="font-cinzel font-bold text-slate-400 tracking-widest">
-                              INITIALIZING RAG...
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <span
-                              className={`font-serif font-bold text-lg tracking-[0.15em] ${COLORS.voidNavyDark}`}
-                            >
-                              BEGIN CAMPAIGN
-                            </span>
-                            <Swords
-                              className={`w-5 h-5 ${COLORS.voidNavyDark} group-hover:rotate-12 transition-transform`}
-                            />
-                          </>
-                        )}
+                      ))}
+                  </div>
 
-                        {/* Decorative Lines on Button */}
-                        {!isLaunching && (
-                          <div className="absolute top-0 bottom-0 left-4 w-px bg-slate-900/10" />
-                        )}
-                        {!isLaunching && (
-                          <div className="absolute top-0 bottom-0 right-4 w-px bg-slate-900/10" />
-                        )}
-                      </button>
-
-                      <div className="text-center mt-3">
-                        <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest">
-                          Estimated Simulation Time: Infinite
-                        </span>
+                  {/* Launch Button */}
+                  <div className="mt-auto pt-6 border-t border-slate-700">
+                    {error && (
+                      <div className="mb-4 p-3 bg-red-900/30 border border-red-500/50 rounded text-red-400 text-sm">
+                        {error}
                       </div>
+                    )}
+                    <button
+                      onClick={handleStartGame}
+                      disabled={isLaunching}
+                      className={`
+                        w-full group relative overflow-hidden rounded-lg py-4 px-6
+                        flex items-center justify-center gap-3
+                        transition-all duration-300 font-cinzel
+                        ${isLaunching
+                          ? "bg-slate-800 cursor-wait"
+                          : "bg-gradient-to-r from-[#D4AF37] via-[#F5D76E] to-[#D4AF37] hover:from-[#F5D76E] hover:via-[#FFE49C] hover:to-[#F5D76E] shadow-[0_0_25px_rgba(212,175,55,0.5)] hover:shadow-[0_0_35px_rgba(245,215,110,0.6)] border border-[#B8860B]"
+                        }
+                      `}
+                    >
+                      {isLaunching ? (
+                        <>
+                          <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                          <span className="font-bold text-slate-400 tracking-widest">INITIALIZING...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="font-bold text-lg tracking-[0.15em] text-[#0F172A]">
+                            {gameMode === "spectate" ? "START SIMULATION" : "BEGIN CAMPAIGN"}
+                          </span>
+                          {gameMode === "spectate" ? (
+                            <Eye className="w-5 h-5 text-[#0F172A]" />
+                          ) : (
+                            <Swords className="w-5 h-5 text-[#0F172A] group-hover:rotate-12 transition-transform" />
+                          )}
+                        </>
+                      )}
+                    </button>
+
+                    <div className="text-center mt-3">
+                      <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest">
+                        {gameMode === "spectate" ? "Watch AI models compete in real-time" : "Test your strategy against AI"}
+                      </span>
                     </div>
                   </div>
-                )}
-              </div>
-            </section>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
 
-      {/* CSS Utility for Animations (simulated in JS for file completeness) */}
+      {/* CSS Animations */}
       <style>{`
         @keyframes bounce-short {
           0%, 100% { transform: translateY(0); }
@@ -569,20 +880,6 @@ export default function Lobby() {
         @keyframes fadeInUp {
           from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: translateY(0); }
-        }
-        /* Custom Scrollbar for the Cyber-feel */
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: rgba(15, 23, 42, 0.5);
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: rgba(0, 255, 163, 0.2);
-          border-radius: 3px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: rgba(0, 255, 163, 0.4);
         }
       `}</style>
     </div>

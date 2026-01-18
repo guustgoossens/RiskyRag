@@ -4,32 +4,74 @@ import { api } from "./_generated/api";
 import { SCENARIOS, type ScenarioId } from "./scenarios";
 import type { Doc, Id } from "./_generated/dataModel";
 
-// Model registry for multi-provider support
+// Model registry - OpenRouter models with CONFIRMED tool_choice support
+// IMPORTANT: Many free models support "tools" but NOT "tool_choice" parameter
+// Only models confirmed to work with agentic tool calling are listed here
+// See: https://github.com/block/goose/issues/3054
 const MODELS = {
-  "gpt-4o": {
-    provider: "openai",
-    model: "gpt-4o",
-    apiKeyEnv: "OPENAI_API_KEY",
+  // === CONFIRMED WORKING FREE MODELS (support both tools AND tool_choice) ===
+  "devstral": {
+    provider: "openrouter",
+    model: "mistralai/devstral-2512:free",
+    apiKeyEnv: "OPENROUTER_API_KEY",
+    supportsTools: true,
+    description: "Mistral's dev-focused model, confirmed tool_choice support",
   },
-  "gpt-4o-mini": {
-    provider: "openai",
-    model: "gpt-4o-mini",
-    apiKeyEnv: "OPENAI_API_KEY",
+  "trinity-mini": {
+    provider: "openrouter",
+    model: "arcee-ai/trinity-mini:free",
+    apiKeyEnv: "OPENROUTER_API_KEY",
+    supportsTools: true,
+    description: "Arcee's 26B MoE (3B active), confirmed tool_choice support",
   },
-  "claude-sonnet": {
-    provider: "anthropic",
-    model: "claude-sonnet-4-20250514",
-    apiKeyEnv: "ANTHROPIC_API_KEY",
+  "tng-r1t-chimera": {
+    provider: "openrouter",
+    model: "tngtech/tng-r1t-chimera:free",
+    apiKeyEnv: "OPENROUTER_API_KEY",
+    supportsTools: true,
+    description: "TNG's R1T Chimera, confirmed tool_choice support",
   },
-  "llama-3.2-7b": {
-    provider: "vllm",
-    model: "meta-llama/Llama-3.2-7B-Instruct",
-    apiKeyEnv: "VLLM_API_KEY",
+  "qwen3-coder": {
+    provider: "openrouter",
+    model: "qwen/qwen3-coder:free",
+    apiKeyEnv: "OPENROUTER_API_KEY",
+    supportsTools: true,
+    description: "Qwen3 Coder, confirmed tool_choice support",
+  },
+
+  // === PAID MODELS (reliable tool calling, low cost) ===
+  // Use these if free models are rate-limited or unavailable
+  "llama-3.3-70b": {
+    provider: "openrouter",
+    model: "meta-llama/llama-3.3-70b-instruct",
+    apiKeyEnv: "OPENROUTER_API_KEY",
+    supportsTools: true,
+    description: "Meta Llama 3.3 70B, ~$0.10/M tokens, excellent tool use",
+  },
+  "qwen3-32b": {
+    provider: "openrouter",
+    model: "qwen/qwen-3-32b",
+    apiKeyEnv: "OPENROUTER_API_KEY",
+    supportsTools: true,
+    description: "Qwen3 32B, ~$0.08/M tokens, strong reasoning",
+  },
+  "gemma-3-27b": {
+    provider: "openrouter",
+    model: "google/gemma-3-27b-it",
+    apiKeyEnv: "OPENROUTER_API_KEY",
+    supportsTools: true,
+    description: "Google Gemma 3 27B, ~$0.10/M tokens, 128K context",
+  },
+  "mistral-small": {
+    provider: "openrouter",
+    model: "mistralai/mistral-small-3.1-24b-instruct",
+    apiKeyEnv: "OPENROUTER_API_KEY",
+    supportsTools: true,
+    description: "Mistral Small 24B, ~$0.10/M tokens, fast + reliable",
   },
 } as const;
 
 type ModelKey = keyof typeof MODELS;
-type ModelConfig = (typeof MODELS)[ModelKey];
 
 // Message type for LLM conversations
 type Message = {
@@ -184,7 +226,22 @@ const TOOL_VALIDATORS: Record<
 
   query_history: () => ({ valid: true }), // Always allowed
 
+  trade_cards: (ctx) => {
+    if (ctx.phase !== "reinforce") {
+      return {
+        valid: false,
+        error: `Cannot trade cards during ${ctx.phase.toUpperCase()} phase.`,
+        hint: "Card trading only allowed during REINFORCE phase.",
+      };
+    }
+    return { valid: true };
+  },
+
   send_negotiation: () => ({ valid: true }), // Always allowed
+
+  respond_to_negotiation: () => ({ valid: true }), // Always allowed
+
+  take_note: () => ({ valid: true }), // Always allowed
 
   done: (ctx) => {
     if (ctx.phase !== "attack" && ctx.phase !== "fortify") {
@@ -365,12 +422,12 @@ const GAME_TOOLS = [
     function: {
       name: "fortify",
       description:
-        "Move troops between your own adjacent territories. Only available during FORTIFY phase. You get ONE fortify move per turn.",
+        "Move troops between your territories through any connected path of territories you own. Does NOT require direct adjacency - you can move through chains (e.g., A→B→C if you own all three). Only available during FORTIFY phase. You get ONE fortify move per turn.",
       parameters: {
         type: "object",
         properties: {
           from: { type: "string", description: "Source territory name" },
-          to: { type: "string", description: "Destination territory name" },
+          to: { type: "string", description: "Destination territory name (must be reachable through your territories)" },
           count: { type: "number", description: "Number of troops to move (must leave at least 1)" },
         },
         required: ["from", "to", "count"],
@@ -398,6 +455,25 @@ const GAME_TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "trade_cards",
+      description:
+        "Trade 3 Risk cards for bonus reinforcement troops. Valid sets: 3 of the same type (infantry/cavalry/artillery) OR 1 of each type. Bonus increases with each trade (4→6→8→10→12→15→20). Only available during REINFORCE phase. You MUST trade if holding 5+ cards.",
+      parameters: {
+        type: "object",
+        properties: {
+          cardIndices: {
+            type: "array",
+            items: { type: "number" },
+            description: "Array of exactly 3 card indices to trade (0-indexed from your card list)",
+          },
+        },
+        required: ["cardIndices"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "send_negotiation",
       description: "Send a diplomatic message to another nation",
       parameters: {
@@ -413,6 +489,49 @@ const GAME_TOOLS = [
           },
         },
         required: ["recipient_nation", "message"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "respond_to_negotiation",
+      description: "Respond to a diplomatic message you received. You can accept, reject, or counter the proposal.",
+      parameters: {
+        type: "object",
+        properties: {
+          sender_nation: {
+            type: "string",
+            description: "The nation that sent you the message",
+          },
+          response: {
+            type: "string",
+            enum: ["accept", "reject", "counter"],
+            description: "Your response: accept the proposal, reject it, or counter with a new proposal",
+          },
+          message: {
+            type: "string",
+            description: "Your response message (required for counter, optional for accept/reject)",
+          },
+        },
+        required: ["sender_nation", "response"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "take_note",
+      description: "Record a private strategic note. These notes are not visible to other players but help you plan across turns. Use this to track long-term strategies, observations about enemy behavior, or reminders for future turns.",
+      parameters: {
+        type: "object",
+        properties: {
+          content: {
+            type: "string",
+            description: "Your strategic note. Be specific about plans, threats, or observations.",
+          },
+        },
+        required: ["content"],
       },
     },
   },
@@ -521,7 +640,7 @@ export const executeTurn = action({
       throw new Error("Cannot execute AI turn for human player");
     }
 
-    const modelKey = (player.model ?? "gpt-4o") as ModelKey;
+    const modelKey = (player.model ?? "devstral") as ModelKey;
     const modelConfig = MODELS[modelKey];
 
     if (!modelConfig) {
@@ -541,7 +660,7 @@ export const executeTurn = action({
       gameId: args.gameId,
       playerId: args.playerId,
       turn: game.currentTurn,
-      model: player.model ?? "gpt-4o",
+      model: player.model ?? "devstral",
       nation: player.nation,
       gameDateTimestamp: game.currentDate,
     });
@@ -575,22 +694,42 @@ Current Game State (Turn ${game.currentTurn}):
 Date: ${gameDate.toLocaleDateString("en-US", { year: "numeric", month: "long" })}
 
 Your Territories (${myTerritories.length}):
-${myTerritories.map((t: Doc<"territories">) => `- ${t.displayName}: ${t.troops} troops (adjacent to: ${t.adjacentTo.join(", ")})`).join("\n")}
+${myTerritories.map((t: Doc<"territories">) => `- ${t.name}: ${t.troops} troops (adjacent to: ${t.adjacentTo.join(", ")})`).join("\n")}
 
-Other Powers:
+IMPORTANT: Use the exact territory names shown above (e.g., "constantinople", "thrace") in tool calls. These are case-sensitive identifiers.
+
+NOTE on Movement:
+- ATTACK: Must be to adjacent enemy territories only
+- FORTIFY: Can move through ANY chain of connected territories you own (e.g., if you own A, B, C in a chain, you can move directly from A to C)
+
+Enemy Territories (you can attack these):
 ${players
   .filter((p: Doc<"players">) => p._id !== args.playerId && !p.isEliminated)
   .map((p: Doc<"players">) => {
     const theirTerritories = territories.filter((t: Doc<"territories">) => t.ownerId === p._id);
-    return `- ${p.nation}: ${theirTerritories.length} territories`;
+    return `${p.nation}:\n${theirTerritories.map((t: Doc<"territories">) => `  - ${t.name}: ${t.troops} troops (adjacent to: ${t.adjacentTo.join(", ")})`).join("\n")}`;
   })
   .join("\n")}
+
+MAP TOPOLOGY (all territory connections):
+${territories.map((t: Doc<"territories">) => {
+  const owner = players.find((p: Doc<"players">) => p._id === t.ownerId);
+  const ownerName = owner?.nation ?? "Neutral";
+  return `${t.name} (${ownerName}, ${t.troops} troops) ↔ ${t.adjacentTo.join(", ")}`;
+}).join("\n")}
 
 Current Phase: ${game.phase ?? "reinforce"}
 ${game.phase === "setup" ? `Setup troops remaining: ${player.setupTroopsRemaining ?? 0}` : ""}
 ${game.reinforcementsRemaining ? `Reinforcements to place: ${game.reinforcementsRemaining}` : ""}
 ${game.pendingConquest ? `PENDING CONQUEST: You must move ${game.pendingConquest.minTroops}-${game.pendingConquest.maxTroops} troops to ${game.pendingConquest.toTerritory}` : ""}
 ${game.fortifyUsed ? "Fortify move already used this turn" : ""}
+
+RISK CARDS:
+Your Cards: ${(player.cards ?? []).map((c: string, i: number) => `${i}: ${c}`).join(", ") || "None"}
+Cards can be traded for bonus troops: 3 of same type OR 1 of each type (infantry/cavalry/artillery).
+Next trade bonus: ${(() => { const bonuses = [4, 6, 8, 10, 12, 15, 20]; return bonuses[Math.min(game.cardTradeCount ?? 0, bonuses.length - 1)]; })()} troops
+${(player.cards?.length ?? 0) >= 5 ? "⚠️ You have 5+ cards - MUST trade before placing reinforcements!" : ""}
+${(player.cards?.length ?? 0) >= 3 && game.phase === "reinforce" ? "💡 You can trade cards during REINFORCE phase using trade_cards tool." : ""}
 
 ${game.phase === "setup" ? `SETUP PHASE (Turn 0):
 You are placing your initial army. Distribute your ${player.setupTroopsRemaining ?? 0} remaining troops across your territories strategically.
@@ -606,14 +745,15 @@ Available Actions (SETUP):
 ` : `Turn Phases (in order):
 1. REINFORCE: Place all reinforcement troops on your territories
 2. ATTACK: Attack enemy territories (optional, can attack multiple times)
-3. FORTIFY: Move troops between your territories (ONE move only, optional)
+3. FORTIFY: Move troops through connected territories you own (ONE move only, optional)
 
 Available Actions:
 - place_reinforcements: Place troops on your territory (REINFORCE phase)
+- trade_cards: Trade 3 cards for bonus troops (REINFORCE phase only, 3 same OR 1 each)
 - advance_phase: Move to the next phase
 - attack_territory: Attack with 1-3 dice (ATTACK phase only, need dice+1 troops)
 - confirm_conquest: After conquering, choose how many troops to move in
-- fortify: Move troops between your territories (FORTIFY phase, ONE move per turn)
+- fortify: Move troops through any chain of connected territories you own (FORTIFY phase, ONE move per turn, does NOT require direct adjacency)
 - query_history: Ask about historical events (you only know events up to ${gameDate.getFullYear()})
 - send_negotiation: Send a diplomatic message to another nation
 - done: Validate your strategy (ATTACK/FORTIFY phase only, REQUIRED before end_turn)
@@ -643,7 +783,7 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
 
       let turnComplete = false;
       let iterations = 0;
-      const maxIterations = 10;
+      const maxIterations = 20; // Allow plenty of room for full turn completion
 
       while (!turnComplete && iterations < maxIterations) {
         iterations++;
@@ -667,7 +807,29 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
         // Process tool calls
         for (const toolCall of response.toolCalls) {
           const toolName = toolCall.function.name;
-          const toolArgs = JSON.parse(toolCall.function.arguments);
+
+          // Parse tool arguments with error handling (some models return malformed JSON)
+          let toolArgs: Record<string, unknown>;
+          try {
+            toolArgs = JSON.parse(toolCall.function.arguments);
+          } catch (parseError) {
+            console.error(`Failed to parse tool arguments for ${toolName}:`, toolCall.function.arguments);
+            // Try to salvage by treating as empty args or skip this tool call
+            messages.push({
+              role: "assistant",
+              content: null,
+              tool_calls: [toolCall],
+            });
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: JSON.stringify({
+                error: "Invalid JSON in tool arguments. Please format your tool call correctly.",
+                rawArguments: toolCall.function.arguments?.slice(0, 200),
+              }),
+            });
+            continue;
+          }
 
           // ===== LOG TOOL CALL START =====
           await ctx.runMutation(api.agentStreaming.updateCurrentTool, {
@@ -756,8 +918,8 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
                   const result = await ctx.runMutation(api.territories.placeSetupTroop, {
                     gameId: args.gameId,
                     playerId: args.playerId,
-                    territory: toolArgs.territory,
-                    troops: toolArgs.troops,
+                    territory: toolArgs.territory as string,
+                    troops: toolArgs.troops as number,
                   });
                   toolResult = JSON.stringify(result);
                 } else {
@@ -765,8 +927,8 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
                   const result = await ctx.runMutation(api.territories.reinforce, {
                     gameId: args.gameId,
                     playerId: args.playerId,
-                    territory: toolArgs.territory,
-                    troops: toolArgs.troops,
+                    territory: toolArgs.territory as string,
+                    troops: toolArgs.troops as number,
                   });
                   toolResult = JSON.stringify(result);
                 }
@@ -800,9 +962,9 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
                 const result = await ctx.runMutation(api.territories.attack, {
                   gameId: args.gameId,
                   playerId: args.playerId,
-                  fromTerritory: toolArgs.from,
-                  toTerritory: toolArgs.to,
-                  diceCount: toolArgs.dice,
+                  fromTerritory: toolArgs.from as string,
+                  toTerritory: toolArgs.to as string,
+                  diceCount: toolArgs.dice as number,
                 });
                 toolResult = JSON.stringify(result);
                 break;
@@ -814,7 +976,7 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
                   {
                     gameId: args.gameId,
                     playerId: args.playerId,
-                    troopsToMove: toolArgs.troops,
+                    troopsToMove: toolArgs.troops as number,
                   }
                 );
                 toolResult = JSON.stringify(result);
@@ -825,9 +987,9 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
                 const result = await ctx.runMutation(api.territories.moveTroops, {
                   gameId: args.gameId,
                   playerId: args.playerId,
-                  fromTerritory: toolArgs.from,
-                  toTerritory: toolArgs.to,
-                  count: toolArgs.count,
+                  fromTerritory: toolArgs.from as string,
+                  toTerritory: toolArgs.to as string,
+                  count: toolArgs.count as number,
                 });
                 toolResult = JSON.stringify(result);
                 break;
@@ -839,22 +1001,36 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
                   api.rag.queryHistoryWithBlocked,
                   {
                     gameId: args.gameId,
-                    question: toolArgs.question,
+                    question: toolArgs.question as string,
                   }
                 );
 
                 toolResult = JSON.stringify(ragResult.snippets, null, 2);
 
-                // Log RAG query with temporal filtering info
+                // Log RAG query with temporal filtering info and snippets for citations
                 await ctx.runMutation(api.agentStreaming.logRagQuery, {
                   activityId,
                   toolCallId,
                   gameId: args.gameId,
-                  question: toolArgs.question,
+                  question: toolArgs.question as string,
                   gameDateTimestamp: game.currentDate,
                   snippetsReturned: ragResult.snippets.length,
                   snippetsBlocked: ragResult.blocked.count,
                   blockedEventsSample: ragResult.blocked.sample,
+                  snippets: ragResult.snippets.map((s: {
+                    content: string;
+                    title: string | null;
+                    date: string;
+                    source: string;
+                    sourceUrl: string | null;
+                    relevanceScore: number;
+                  }) => ({
+                    title: s.title ?? undefined,
+                    content: s.content,
+                    source: s.source,
+                    sourceUrl: s.sourceUrl ?? undefined,
+                    date: s.date,
+                  })),
                 });
 
                 // Log the historical query
@@ -864,7 +1040,7 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
                   playerId: args.playerId,
                   action: "query",
                   details: {
-                    question: toolArgs.question,
+                    question: toolArgs.question as string,
                     resultCount: ragResult.snippets.length,
                     blockedCount: ragResult.blocked.count,
                   },
@@ -872,45 +1048,124 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
                 break;
               }
 
+              case "trade_cards": {
+                const result = await ctx.runMutation(api.territories.tradeCards, {
+                  gameId: args.gameId,
+                  playerId: args.playerId,
+                  cardIndices: toolArgs.cardIndices as number[],
+                });
+                toolResult = JSON.stringify(result);
+                break;
+              }
+
               case "send_negotiation": {
                 // Find recipient player
+                const recipientNation = toolArgs.recipient_nation as string;
                 const recipient = players.find(
-                  (p: Doc<"players">) => p.nation === toolArgs.recipient_nation
+                  (p: Doc<"players">) => p.nation === recipientNation
                 );
                 if (!recipient) {
-                  toolResult = `Error: Nation "${toolArgs.recipient_nation}" not found`;
+                  toolResult = `Error: Nation "${recipientNation}" not found`;
                 } else {
                   await ctx.runMutation(api.negotiations.send, {
                     gameId: args.gameId,
                     senderId: args.playerId,
                     recipientId: recipient._id,
-                    message: toolArgs.message,
+                    message: toolArgs.message as string,
                   });
-                  toolResult = `Message sent to ${toolArgs.recipient_nation}`;
+                  toolResult = `Message sent to ${recipientNation}`;
                 }
+                break;
+              }
+
+              case "respond_to_negotiation": {
+                // Find the sender player
+                const senderNation = toolArgs.sender_nation as string;
+                const responseType = toolArgs.response as string;
+                const senderPlayer = players.find(
+                  (p: Doc<"players">) => p.nation === senderNation
+                );
+                if (!senderPlayer) {
+                  toolResult = `Error: Nation "${senderNation}" not found`;
+                } else {
+                  // Find the pending negotiation from this sender
+                  const pendingNegotiations = await ctx.runQuery(
+                    api.negotiations.getPendingForPlayer,
+                    {
+                      gameId: args.gameId,
+                      playerId: args.playerId,
+                    }
+                  );
+
+                  const negotiation = pendingNegotiations.find(
+                    (n: { senderId: Id<"players"> }) => n.senderId === senderPlayer._id
+                  );
+
+                  if (!negotiation) {
+                    toolResult = `Error: No pending negotiation from ${senderNation}`;
+                  } else {
+                    const statusMap: Record<string, "accepted" | "rejected" | "countered"> = {
+                      accept: "accepted",
+                      reject: "rejected",
+                      counter: "countered",
+                    };
+
+                    await ctx.runMutation(api.negotiations.respond, {
+                      negotiationId: negotiation._id,
+                      playerId: args.playerId,
+                      status: statusMap[responseType],
+                      responseMessage: toolArgs.message as string | undefined,
+                    });
+
+                    toolResult = `Response sent to ${senderNation}: ${responseType}`;
+                  }
+                }
+                break;
+              }
+
+              case "take_note": {
+                await ctx.runMutation(api.agentNotes.add, {
+                  gameId: args.gameId,
+                  playerId: args.playerId,
+                  turn: game.currentTurn,
+                  content: toolArgs.content as string,
+                });
+                toolResult = "Strategic note recorded.";
                 break;
               }
 
               case "done": {
                 // Validation already done by validateToolCall - just execute
                 // Store checkpoint data for activity completion
+                const checklist = toolArgs.checklist as {
+                  consulted_history: boolean;
+                  evaluated_threats: boolean;
+                  reinforced_weak_points: boolean;
+                  considered_diplomacy: boolean;
+                  maximized_attacks: boolean;
+                };
+                const status = toolArgs.status as string;
+                const strategySummary = toolArgs.strategy_summary as string;
+                const confidence = toolArgs.confidence as string;
+                const nextTurnPriority = toolArgs.next_turn_priority as string | undefined;
+
                 doneCheckpoint = {
-                  status: toolArgs.status,
-                  strategySummary: toolArgs.strategy_summary,
-                  checklist: toolArgs.checklist,
-                  confidence: toolArgs.confidence,
-                  nextTurnPriority: toolArgs.next_turn_priority,
+                  status,
+                  strategySummary,
+                  checklist,
+                  confidence,
+                  nextTurnPriority,
                 };
 
                 // Log the checkpoint
                 await ctx.runMutation(api.agentStreaming.logDoneCheckpoint, {
                   activityId,
                   gameId: args.gameId,
-                  status: toolArgs.status,
-                  strategySummary: toolArgs.strategy_summary,
-                  checklist: toolArgs.checklist,
-                  confidence: toolArgs.confidence,
-                  nextTurnPriority: toolArgs.next_turn_priority,
+                  status,
+                  strategySummary,
+                  checklist,
+                  confidence,
+                  nextTurnPriority,
                 });
 
                 // Log to game log as well
@@ -920,14 +1175,14 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
                   playerId: args.playerId,
                   action: "done_checkpoint",
                   details: {
-                    status: toolArgs.status,
-                    confidence: toolArgs.confidence,
-                    checklist: toolArgs.checklist,
+                    status,
+                    confidence,
+                    checklist,
                   },
                 });
 
                 // Return confirmation with quality feedback
-                const checklistItems = Object.entries(toolArgs.checklist);
+                const checklistItems = Object.entries(checklist);
                 const completedCount = checklistItems.filter(([, v]) => v).length;
                 const totalCount = checklistItems.length;
 
@@ -948,7 +1203,8 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
                 });
 
                 // Capture reasoning for activity completion
-                finalReasoning = toolArgs.reasoning;
+                const reasoning = toolArgs.reasoning as string | undefined;
+                finalReasoning = reasoning;
 
                 // Log the turn end
                 await ctx.runMutation(api.gameLog.add, {
@@ -956,7 +1212,7 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
                   turn: game.currentTurn,
                   playerId: args.playerId,
                   action: "end_turn",
-                  details: { reasoning: toolArgs.reasoning },
+                  details: { reasoning },
                 });
                 turnComplete = true;
                 toolResult = JSON.stringify(nextTurnResult);
@@ -997,13 +1253,95 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
       if (!turnComplete) {
         // Force end turn if max iterations reached
         finalReasoning = "Max iterations reached";
-        await ctx.runMutation(api.gameLog.add, {
-          gameId: args.gameId,
-          turn: game.currentTurn,
-          playerId: args.playerId,
-          action: "end_turn",
-          details: { reasoning: "Max iterations reached", forced: true },
-        });
+
+        // Get fresh game state to check phase
+        const currentGame = await ctx.runQuery(api.games.get, { id: args.gameId });
+        const currentPlayer = await ctx.runQuery(api.players.get, { id: args.playerId });
+
+        if (currentGame?.phase === "setup") {
+          // During setup, we need to handle this specially
+          const troopsRemaining = currentPlayer?.setupTroopsRemaining ?? 0;
+
+          if (troopsRemaining === 0) {
+            // All troops placed, auto-finish setup to trigger next player
+            try {
+              await ctx.runMutation(api.territories.finishSetup, {
+                gameId: args.gameId,
+                playerId: args.playerId,
+              });
+              finalReasoning = "Setup auto-completed after max iterations";
+            } catch (e) {
+              // finishSetup might fail if already advanced, ignore
+            }
+          } else {
+            // Still has troops - auto-place them evenly across territories
+            const myTerritories = await ctx.runQuery(api.territories.getByOwner, {
+              playerId: args.playerId,
+            });
+
+            if (myTerritories.length > 0) {
+              // Distribute remaining troops evenly
+              const troopsPerTerritory = Math.floor(troopsRemaining / myTerritories.length);
+              let leftover = troopsRemaining % myTerritories.length;
+
+              for (const territory of myTerritories) {
+                const toPlace = troopsPerTerritory + (leftover > 0 ? 1 : 0);
+                if (leftover > 0) leftover--;
+
+                if (toPlace > 0) {
+                  try {
+                    await ctx.runMutation(api.territories.placeSetupTroop, {
+                      gameId: args.gameId,
+                      playerId: args.playerId,
+                      territory: territory.name,
+                      troops: toPlace,
+                    });
+                  } catch (e) {
+                    // Ignore placement errors
+                  }
+                }
+              }
+
+              // Now finish setup
+              try {
+                await ctx.runMutation(api.territories.finishSetup, {
+                  gameId: args.gameId,
+                  playerId: args.playerId,
+                });
+                finalReasoning = "Setup auto-completed with distributed troops";
+              } catch (e) {
+                // finishSetup might fail, ignore
+              }
+            }
+          }
+        } else {
+          // Normal turn - auto-complete if done checkpoint was reached
+          if (doneCheckpoint) {
+            // Agent called done() but didn't call end_turn - auto-complete
+            try {
+              await ctx.runMutation(api.games.nextTurn, { gameId: args.gameId });
+              finalReasoning = "Turn auto-completed after done checkpoint";
+            } catch (e) {
+              // nextTurn might fail if there's a pending conquest, log it
+              await ctx.runMutation(api.gameLog.add, {
+                gameId: args.gameId,
+                turn: game.currentTurn,
+                playerId: args.playerId,
+                action: "end_turn",
+                details: { reasoning: "Max iterations after done", forced: true, error: String(e) },
+              });
+            }
+          } else {
+            // Agent didn't even call done - just log it
+            await ctx.runMutation(api.gameLog.add, {
+              gameId: args.gameId,
+              turn: game.currentTurn,
+              playerId: args.playerId,
+              action: "end_turn",
+              details: { reasoning: "Max iterations reached", forced: true },
+            });
+          }
+        }
       }
 
       // ===== COMPLETE ACTIVITY =====
@@ -1029,7 +1367,18 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
   },
 });
 
-// Helper to call LLM with tool support
+// Fallback model order - try these in sequence if the primary model fails
+const FALLBACK_MODEL_ORDER: ModelKey[] = [
+  "devstral",      // Usually most reliable free model
+  "qwen3-coder",   // Good alternative
+  "tng-r1t-chimera",
+  "trinity-mini",
+  "mistral-small", // Paid fallback - very reliable
+];
+
+// Helper to call LLM with tool support via OpenRouter
+// OpenRouter provides an OpenAI-compatible API at https://openrouter.ai/api/v1
+// Docs: https://openrouter.ai/docs/guides/features/tool-calling
 async function callLLM(
   config: (typeof MODELS)[ModelKey],
   messages: Array<{
@@ -1046,132 +1395,172 @@ async function callLLM(
     function: { name: string; arguments: string };
   }> | null;
 }> {
-  const apiKey = process.env[config.apiKeyEnv];
+  // Build list of models to try: primary first, then fallbacks (excluding primary)
+  const primaryModelKey = Object.entries(MODELS).find(
+    ([, v]) => v.model === config.model
+  )?.[0] as ModelKey | undefined;
 
-  if (!apiKey) {
-    throw new Error(`Missing API key: ${config.apiKeyEnv}`);
-  }
+  const modelsToTry = primaryModelKey
+    ? [primaryModelKey, ...FALLBACK_MODEL_ORDER.filter((m) => m !== primaryModelKey)]
+    : FALLBACK_MODEL_ORDER;
 
-  if (config.provider === "openai") {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: config.model,
-        messages,
-        tools,
-        tool_choice: "auto",
-      }),
-    });
+  const errors: string[] = [];
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`OpenAI API error: ${error}`);
+  for (const modelKey of modelsToTry) {
+    const modelConfig = MODELS[modelKey];
+    const apiKey = process.env[modelConfig.apiKeyEnv];
+
+    if (!apiKey) {
+      errors.push(`${modelKey}: Missing API key ${modelConfig.apiKeyEnv}`);
+      continue;
     }
 
-    const data = await response.json();
-    const choice = data.choices[0];
+    // Try this model with 2 retries (3 total attempts) for transient errors
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const result = await callLLMSingle(modelConfig, messages, tools, apiKey);
+        if (modelKey !== primaryModelKey) {
+          console.log(`Successfully used fallback model: ${modelKey} (primary was unavailable)`);
+        }
+        return result;
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
 
-    return {
-      content: choice.message.content,
-      toolCalls: choice.message.tool_calls ?? null,
-    };
-  }
+        // Check if this is a retryable error (rate limit, temporary unavailable)
+        const isRetryable =
+          errorMsg.includes("429") ||
+          errorMsg.includes("rate-limit") ||
+          errorMsg.includes("temporarily") ||
+          errorMsg.includes("upstream") ||
+          errorMsg.includes("503") ||
+          errorMsg.includes("502");
 
-  if (config.provider === "anthropic") {
-    // Convert OpenAI format to Anthropic format
-    const anthropicMessages = messages
-      .filter((m) => m.role !== "system")
-      .map((m) => ({
-        role: m.role === "assistant" ? "assistant" : "user",
-        content: m.content ?? "",
-      }));
+        if (isRetryable && attempt < 3) {
+          // Wait before retry: 1s, then 2s
+          const waitMs = attempt * 1000;
+          console.log(`${modelKey} attempt ${attempt} failed (retryable), waiting ${waitMs}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+          continue;
+        }
 
-    const systemMessage = messages.find((m) => m.role === "system");
-
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: config.model,
-        max_tokens: 4096,
-        system: systemMessage?.content ?? "",
-        messages: anthropicMessages,
-        tools: tools.map((t) => ({
-          name: t.function.name,
-          description: t.function.description,
-          input_schema: t.function.parameters,
-        })),
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Anthropic API error: ${error}`);
+        // Non-retryable error or last attempt - move to next model
+        errors.push(`${modelKey}: ${errorMsg.slice(0, 150)}`);
+        break;
+      }
     }
-
-    const data = await response.json();
-
-    // Convert Anthropic response to OpenAI format
-    const textContent = data.content.find((c: any) => c.type === "text");
-    const toolUseContent = data.content.filter(
-      (c: any) => c.type === "tool_use"
-    );
-
-    return {
-      content: textContent?.text ?? null,
-      toolCalls:
-        toolUseContent.length > 0
-          ? toolUseContent.map((t: any) => ({
-              id: t.id,
-              function: {
-                name: t.name,
-                arguments: JSON.stringify(t.input),
-              },
-            }))
-          : null,
-    };
   }
 
-  if (config.provider === "vllm") {
-    const vllmEndpoint =
-      process.env.VLLM_ENDPOINT ?? "http://localhost:8000/v1/chat/completions";
-
-    const response = await fetch(vllmEndpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: config.model,
-        messages,
-        tools,
-        tool_choice: "auto",
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`vLLM API error: ${error}`);
-    }
-
-    const data = await response.json();
-    const choice = data.choices[0];
-
-    return {
-      content: choice.message.content,
-      toolCalls: choice.message.tool_calls ?? null,
-    };
-  }
-
-  // This should never be reached, but TypeScript needs it
-  throw new Error(`Unknown provider: ${(config as ModelConfig).provider}`);
+  // All models failed
+  throw new Error(`All LLM models failed:\n${errors.join("\n")}`);
 }
+
+// Single LLM call without retry/fallback logic
+async function callLLMSingle(
+  config: (typeof MODELS)[ModelKey],
+  messages: Array<{
+    role: "system" | "user" | "assistant" | "tool";
+    content: string | null;
+    tool_calls?: any[];
+    tool_call_id?: string;
+  }>,
+  tools: typeof GAME_TOOLS,
+  apiKey: string
+): Promise<{
+  content: string | null;
+  toolCalls: Array<{
+    id: string;
+    function: { name: string; arguments: string };
+  }> | null;
+}> {
+  if (config.provider !== "openrouter") {
+    throw new Error(`Unknown provider: ${config.provider}`);
+  }
+
+  // OpenRouter uses OpenAI-compatible API format
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+      // Required by OpenRouter for tracking
+      "HTTP-Referer": process.env.OPENROUTER_REFERER ?? "https://riskyrag.dev",
+      "X-Title": "RiskyRag Game Agent",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages,
+      tools,
+      tool_choice: "auto",
+      max_tokens: 4096,
+      temperature: 0.7,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`OpenRouter API error (${response.status}): ${error}`);
+  }
+
+  const data = await response.json();
+
+  // Check for error in response body (OpenRouter sometimes returns 200 with error)
+  if (data.error) {
+    throw new Error(`OpenRouter error: ${data.error.message || JSON.stringify(data.error)}`);
+  }
+
+  // Validate response structure
+  if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+    console.error("Invalid OpenRouter response - no choices:", JSON.stringify(data).slice(0, 500));
+    throw new Error(`Invalid response: missing choices array`);
+  }
+
+  const choice = data.choices[0];
+
+  if (!choice.message) {
+    console.error("Invalid OpenRouter response - no message:", JSON.stringify(choice).slice(0, 500));
+    throw new Error(`Invalid response: missing message in choice`);
+  }
+
+  return {
+    content: choice.message.content,
+    toolCalls: choice.message.tool_calls ?? null,
+  };
+}
+
+// Helper action to trigger AI turn for current player (useful for debugging/manual kicks)
+export const triggerCurrentAI = action({
+  args: {
+    gameId: v.id("games"),
+  },
+  handler: async (ctx, args): Promise<{ triggered: boolean; playerId?: string; reason?: string }> => {
+    const game = await ctx.runQuery(api.games.get, { id: args.gameId });
+    if (!game) {
+      return { triggered: false, reason: "Game not found" };
+    }
+
+    if (game.status !== "active") {
+      return { triggered: false, reason: `Game is ${game.status}` };
+    }
+
+    if (!game.currentPlayerId) {
+      return { triggered: false, reason: "No current player" };
+    }
+
+    const player = await ctx.runQuery(api.players.get, { id: game.currentPlayerId });
+    if (!player) {
+      return { triggered: false, reason: "Current player not found" };
+    }
+
+    if (player.isHuman) {
+      return { triggered: false, reason: "Current player is human" };
+    }
+
+    // Trigger the AI turn
+    await ctx.scheduler.runAfter(0, api.agent.executeTurn, {
+      gameId: args.gameId,
+      playerId: game.currentPlayerId,
+    });
+
+    return { triggered: true, playerId: game.currentPlayerId };
+  },
+});
