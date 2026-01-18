@@ -563,8 +563,8 @@ export default function Lobby() {
   useEffect(() => {
     if (activeScenario) {
       const initialModels: Record<string, string> = {};
-      activeScenario.factions.forEach((f, idx) => {
-        initialModels[f.id] = idx === 0 ? "devstral" : "trinity-mini";
+      activeScenario.factions.forEach((f) => {
+        initialModels[f.id] = "devstral";
       });
       setFactionModels(initialModels);
     }
