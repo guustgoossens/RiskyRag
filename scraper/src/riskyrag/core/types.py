@@ -64,13 +64,21 @@ class HistoricalEvent:
 
     @property
     def event_timestamp(self) -> float:
-        """Unix timestamp of the event date."""
-        return self.event_date.timestamp() * 1000  # Convex uses milliseconds
+        """Unix timestamp of the event date in milliseconds.
+        
+        Uses calendar.timegm for cross-platform support with pre-1970 dates.
+        """
+        import calendar
+        return calendar.timegm(self.event_date.timetuple()) * 1000
 
     @property
     def publication_timestamp(self) -> float:
-        """Unix timestamp of the publication date."""
-        return self.publication_date.timestamp() * 1000
+        """Unix timestamp of the publication date in milliseconds.
+        
+        Uses calendar.timegm for cross-platform support with pre-1970 dates.
+        """
+        import calendar
+        return calendar.timegm(self.publication_date.timetuple()) * 1000
 
 
 @dataclass

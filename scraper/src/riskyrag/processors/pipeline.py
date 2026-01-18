@@ -5,7 +5,6 @@ scrape -> chunk -> embed -> upload to Convex
 """
 
 import asyncio
-from collections.abc import AsyncIterator
 
 import structlog
 from convex import ConvexClient

@@ -21,6 +21,10 @@ class EmbeddingProcessor:
     - OpenAI (fallback, configurable dimensions)
     """
 
+    # Rate limiting settings
+    requests_per_second: float = 2.0  # Conservative rate for API calls
+    max_concurrent_requests: int = 3
+
     def __init__(
         self,
         provider: Literal["voyage", "openai"] = "voyage",
@@ -52,6 +56,8 @@ class EmbeddingProcessor:
             raise ValueError(f"API key not found for {provider}")
 
         self._client: httpx.AsyncClient | None = None
+        self._semaphore = asyncio.Semaphore(self.max_concurrent_requests)
+        self._last_request_time = 0.0
 
     async def __aenter__(self) -> "EmbeddingProcessor":
         """Enter async context."""
@@ -72,6 +78,17 @@ class EmbeddingProcessor:
             self._client = httpx.AsyncClient(timeout=30.0)
         return self._client
 
+    async def _rate_limit(self) -> None:
+        """Enforce rate limiting between requests."""
+        now = asyncio.get_event_loop().time()
+        min_interval = 1.0 / self.requests_per_second
+        elapsed = now - self._last_request_time
+
+        if elapsed < min_interval:
+            await asyncio.sleep(min_interval - elapsed)
+
+        self._last_request_time = asyncio.get_event_loop().time()
+
     async def embed(self, text: str) -> list[float]:
         """Generate an embedding for the given text.
 
@@ -81,12 +98,15 @@ class EmbeddingProcessor:
         Returns:
             A list of floats representing the embedding
         """
-        if self.provider == "voyage":
-            return await self._embed_voyage(text)
-        elif self.provider == "openai":
-            return await self._embed_openai(text)
-        else:
-            raise ValueError(f"Unknown provider: {self.provider}")
+        async with self._semaphore:
+            await self._rate_limit()
+            
+            if self.provider == "voyage":
+                return await self._embed_voyage(text)
+            elif self.provider == "openai":
+                return await self._embed_openai(text)
+            else:
+                raise ValueError(f"Unknown provider: {self.provider}")
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for multiple texts.

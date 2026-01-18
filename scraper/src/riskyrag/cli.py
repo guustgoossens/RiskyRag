@@ -36,34 +36,37 @@ def main(env_file: str) -> None:
 
 
 @main.command()
-@click.option("--source", default="wikipedia", help="Source to scrape (wikipedia)")
+@click.option("--period", default="constantinople", help="period to scrape (constantinople)")
 @click.option("--start-year", default=1400, type=int, help="Start year for date filter")
 @click.option("--end-year", default=1500, type=int, help="End year for date filter")
 @click.option("--limit", default=None, type=int, help="Maximum events to scrape")
 @click.option("--dry-run", is_flag=True, help="Don't upload to Convex")
 @click.option("--cache-dir", default=".cache", help="Directory for caching")
 def scrape(
-    source: str,
+    period: str,
     start_year: int,
     end_year: int,
     limit: int | None,
     dry_run: bool,
     cache_dir: str,
 ) -> None:
-    """Scrape historical data from a source.
+    """Scrape historical data from a time period.
 
     Example:
-        riskyrag scrape --source wikipedia --start-year 1400 --end-year 1500
+        riskyrag scrape --period constantinople --start-year 1400 --end-year 1500
     """
+    # Ensure .env is loaded (in case parent command didn't run)
+    load_dotenv()
+    
     # Import scrapers to trigger registration
     import riskyrag.scrapers  # noqa: F401
     from riskyrag.core.registry import get_scraper
     from riskyrag.processors.embeddings import EmbeddingProcessor
     from riskyrag.processors.pipeline import Pipeline
 
-    scraper_class = get_scraper(source)
+    scraper_class = get_scraper(period)
     if not scraper_class:
-        raise click.ClickException(f"Unknown source: {source}")
+        raise click.ClickException(f"Unknown time period: {period}")
 
     convex_url = os.environ.get("CONVEX_URL")
     if not convex_url and not dry_run:
@@ -79,7 +82,7 @@ def scrape(
 
     logger.info(
         "Starting scrape",
-        source=source,
+        period=period,
         date_range=(start_year, end_year),
         limit=limit,
         dry_run=dry_run,
@@ -133,34 +136,34 @@ def embed(provider: str, text: str) -> None:
 
 
 @main.command()
-def list_sources() -> None:
-    """List available scraper sources."""
+def list_scrapers() -> None:
+    """List available scrapers."""
     # Import scrapers to trigger registration
     import riskyrag.scrapers  # noqa: F401
     from riskyrag.core.registry import list_scrapers
 
-    sources = list_scrapers()
-    click.echo("Available sources:")
-    for source in sources:
-        click.echo(f"  - {source}")
+    periods = list_scrapers()
+    click.echo("Available periods:")
+    for period in periods:
+        click.echo(f"  - {period}")
 
 
 @main.command()
-@click.option("--source", default="wikipedia", help="Source to test")
+@click.option("--period", default="constantinople", help="period to test")
 @click.option("--limit", default=3, type=int, help="Number of events to fetch")
-def test_scrape(source: str, limit: int) -> None:
+def test_scrape(period: str, limit: int) -> None:
     """Test scraping without embeddings or upload.
 
     Example:
-        riskyrag test-scrape --source wikipedia --limit 5
+        riskyrag test-scrape --period constantinople --limit 5
     """
     # Import scrapers to trigger registration
     import riskyrag.scrapers  # noqa: F401
     from riskyrag.core.registry import get_scraper
 
-    scraper_class = get_scraper(source)
+    scraper_class = get_scraper(period)
     if not scraper_class:
-        raise click.ClickException(f"Unknown source: {source}")
+        raise click.ClickException(f"Unknown period: {period}")
 
     async def run() -> None:
         scraper = scraper_class()

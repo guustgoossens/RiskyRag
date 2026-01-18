@@ -60,8 +60,8 @@ WIKIPEDIA_SOURCES_CIVIL_WAR = [
 ]
 
 
-@register_scraper("wikipedia_civil_war")
-class WikipediaCivilWarScraper(BaseScraper):
+@register_scraper("civil_war")
+class CivilWarScraper(BaseScraper):
     """Scraper for Wikipedia American Civil War articles.
 
     Extracts structured historical events from Wikipedia articles,
@@ -69,8 +69,8 @@ class WikipediaCivilWarScraper(BaseScraper):
     """
 
     # Rate limit for Wikipedia (be nice!)
-    requests_per_second: float = 1.0
-    max_concurrent_requests: int = 3
+    requests_per_second: float = 0.5  # 1 request every 2 seconds
+    max_concurrent_requests: int = 2  # Only 2 concurrent requests
 
     @property
     def name(self) -> str:
@@ -129,26 +129,36 @@ class WikipediaCivilWarScraper(BaseScraper):
         # Get the article title
         title_elem = soup.find("h1", {"id": "firstHeading"})
         title = title_elem.get_text() if title_elem else "Unknown"
+        logger.debug("Parsing document", title=title, url=doc.url)
 
         # Get the main content
         content_div = soup.find("div", {"id": "mw-content-text"})
         if not content_div:
+            logger.warning("No content div found", url=doc.url)
             return events
 
         # Extract the lead paragraph (summary)
         lead_paragraphs = []
-        for p in content_div.find_all("p", recursive=False):
+        # Find the parser output div which contains the actual content
+        parser_output = content_div.find("div", {"class": "mw-parser-output"})
+        search_div = parser_output if parser_output else content_div
+        
+        for p in search_div.find_all("p", limit=10):
             text = p.get_text().strip()
-            if text and not text.startswith("["):
+            # Skip empty paragraphs and coordinate/reference markers
+            if text and len(text) > 20 and not text.startswith("["):
                 lead_paragraphs.append(text)
                 if len(lead_paragraphs) >= 3:
                     break
+
+        logger.debug("Found lead paragraphs", count=len(lead_paragraphs), url=doc.url)
 
         if lead_paragraphs:
             summary = " ".join(lead_paragraphs)
 
             # Try to extract date from the content
             event_date = self._extract_date(summary) or datetime(1861, 4, 12)
+            logger.debug("Extracted date", date=event_date, title=title)
 
             # Classify the event type based on title and content
             event_type = self._classify_event(title, summary)
@@ -172,6 +182,7 @@ class WikipediaCivilWarScraper(BaseScraper):
                     tags=self._extract_tags(title, summary),
                 )
             )
+            logger.debug("Created main event", title=title, date=event_date)
 
         # Extract sections with specific dates
         sections = content_div.find_all(["h2", "h3"])
@@ -208,7 +219,9 @@ class WikipediaCivilWarScraper(BaseScraper):
                             tags=self._extract_tags(section_title, content),
                         )
                     )
+                    logger.debug("Created section event", section=section_title, date=event_date)
 
+        logger.info("Parsed document", title=title, events_count=len(events))
         return events
 
     def _extract_date(self, text: str) -> datetime | None:
