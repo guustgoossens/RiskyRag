@@ -93,6 +93,7 @@ async function waitForGameCompletion(
   const startTime = Date.now();
   const pollInterval = 3000; // 3 seconds
   let lastTurn = 0;
+  let lastActivityId: string | null = null;
 
   while (true) {
     const status = await client.query(api.tournament.getGameStatus, { gameId });
@@ -102,13 +103,52 @@ async function waitForGameCompletion(
     }
 
     // Show progress
-    if (showProgress && status.game.currentTurn !== lastTurn) {
-      lastTurn = status.game.currentTurn;
+    if (showProgress) {
       const elapsed = Math.round((Date.now() - startTime) / 1000);
-      log(
-        `  Turn ${status.game.currentTurn} | ${status.currentActivity?.nation || "waiting"} | ${elapsed}s elapsed`,
-        "dim"
-      );
+
+      // Show turn changes
+      if (status.game.currentTurn !== lastTurn) {
+        lastTurn = status.game.currentTurn;
+        log(
+          `\n  ━━━ Turn ${status.game.currentTurn} | ${elapsed}s elapsed ━━━`,
+          "cyan"
+        );
+      }
+
+      // Show current activity
+      if (status.currentActivity) {
+        const activityChanged = status.currentActivity.activityId !== lastActivityId;
+        lastActivityId = status.currentActivity.activityId || null;
+
+        if (activityChanged) {
+          log(`  ${status.currentActivity.nation} (${status.currentActivity.model})`, "bright");
+
+          if (status.currentActivity.reasoning) {
+            const reasoning = status.currentActivity.reasoning.substring(0, 150);
+            log(`    💭 ${reasoning}${reasoning.length >= 150 ? "..." : ""}`, "dim");
+          }
+        }
+
+        // Show current tool
+        if (status.currentActivity.currentTool) {
+          log(`    🔧 ${status.currentActivity.currentTool}`, "yellow");
+        }
+      }
+
+      // Show recent errors
+      if (status.recentErrors && status.recentErrors.length > 0) {
+        for (const error of status.recentErrors) {
+          log(`    ❌ ${error}`, "red");
+        }
+      }
+
+      // Show territory counts
+      if (status.players && status.players.length > 0) {
+        const territoryCounts = status.players
+          .map((p) => `${p.nation}: ${p.territoryCount}`)
+          .join(" | ");
+        log(`    📍 ${territoryCounts}`, "dim");
+      }
     }
 
     if (status.game.status === "finished") {

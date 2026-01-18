@@ -90,6 +90,30 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     description: "Mistral's dev-focused model (free via OpenRouter)",
     color: "#ff7000",
   },
+  {
+    id: "trinity-mini",
+    name: "Trinity Mini",
+    provider: "openrouter",
+    apiModel: "arcee-ai/trinity-mini:free",
+    description: "Arcee AI 26B MoE model (free via OpenRouter)",
+    color: "#9c27b0",
+  },
+  {
+    id: "qwen3-coder",
+    name: "Qwen3 Coder",
+    provider: "openrouter",
+    apiModel: "qwen/qwen3-coder:free",
+    description: "Qwen3 coding model (free via OpenRouter)",
+    color: "#00bcd4",
+  },
+  {
+    id: "tng-r1t-chimera",
+    name: "TNG R1T Chimera",
+    provider: "openrouter",
+    apiModel: "tngtech/tng-r1t-chimera:free",
+    description: "TNG's R1T Chimera (free via OpenRouter)",
+    color: "#4caf50",
+  },
 
   // Local Models (vLLM)
   {
@@ -117,8 +141,8 @@ export const AVAILABLE_SCENARIOS: ScenarioConfig[] = [
     id: "1453",
     name: "Fall of Constantinople (1453)",
     year: 1453,
-    description: "Ottoman Empire vs Byzantine Empire - Historical turning point",
-    players: 2,
+    description: "Ottoman vs Byzantine vs Venice vs Genoa - Battle for Constantinople",
+    players: 4,
   },
   {
     id: "1776",

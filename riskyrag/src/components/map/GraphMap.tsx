@@ -84,8 +84,8 @@ export function GraphMap({
   if (!isCivilWar) {
     // Fallback to the existing node-based visualization for other scenarios
     return (
-      <div className="relative w-full aspect-[8/5] max-w-4xl mx-auto p-4 select-none">
-        <svg viewBox="0 0 100 100" className="w-full h-full">
+      <div className="relative w-full aspect-[16/9] max-w-7xl mx-auto p-8 select-none">
+        <svg viewBox="0 0 1000 600" className="w-full h-full">
           {/* Connections */}
           {territories.map((t) =>
             t.adjacentTo.map((neighborName) => {
@@ -95,12 +95,12 @@ export function GraphMap({
               return (
                 <line
                   key={`${t._id}-${neighbor._id}`}
-                  x1={t.position.x / 10}
-                  y1={t.position.y / 10}
-                  x2={neighbor.position.x / 10}
-                  y2={neighbor.position.y / 10}
+                  x1={t.position.x}
+                  y1={t.position.y}
+                  x2={neighbor.position.x}
+                  y2={neighbor.position.y}
                   stroke="#334155"
-                  strokeWidth="1"
+                  strokeWidth="0.5"
                 />
               );
             })
@@ -108,8 +108,8 @@ export function GraphMap({
 
           {/* Territory Nodes */}
           {territories.map((t) => {
-            const x = t.position.x / 10;
-            const y = t.position.y / 10;
+            const x = t.position.x;
+            const y = t.position.y;
             const isSelected = selectedTerritory === t._id;
             const isSource = attackSource === t._id;
 
@@ -122,17 +122,17 @@ export function GraphMap({
                 <circle
                   cx={x}
                   cy={y}
-                  r="8"
+                  r="16"
                   fill={getOwnerColor(t)}
                   stroke={isSelected || isSource ? "#D4AF37" : "#334155"}
-                  strokeWidth={isSelected || isSource ? "1.5" : "0.5"}
+                  strokeWidth={isSelected || isSource ? "2" : "1"}
                 />
                 <text
                   x={x}
-                  y={y + 1}
+                  y={y + 2}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  fontSize="4"
+                  fontSize="12"
                   fontWeight="bold"
                   fill="white"
                 >
@@ -140,11 +140,11 @@ export function GraphMap({
                 </text>
                 <text
                   x={x}
-                  y={y + 12}
+                  y={y + 28}
                   textAnchor="middle"
-                  fontSize="3"
+                  fontSize="10"
                   fill="#94A3B8"
-                  className="uppercase"
+                  className="uppercase tracking-wide"
                 >
                   {t.displayName}
                 </text>

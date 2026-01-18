@@ -688,19 +688,17 @@ export default function RiskyRagGame() {
             </div>
           )}
           {/* Historical Chat Toggle */}
-          {myPlayer && (
-            <button
-              onClick={() => setShowHistoricalChat(!showHistoricalChat)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                showHistoricalChat
-                  ? "bg-indigo-600 text-white"
-                  : "bg-indigo-900/30 text-indigo-400 hover:bg-indigo-900/50"
-              }`}
-            >
-              <BookOpen size={16} />
-              <span className="text-sm">History</span>
-            </button>
-          )}
+          <button
+            onClick={() => setShowHistoricalChat(!showHistoricalChat)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+              showHistoricalChat
+                ? "bg-indigo-600 text-white"
+                : "bg-indigo-900/30 text-indigo-400 hover:bg-indigo-900/50"
+            }`}
+          >
+            <BookOpen size={16} />
+            <span className="text-sm">History</span>
+          </button>
           {/* Spectator Mode Toggle (AI vs AI games only) */}
           {isAllAI && (
             <button
@@ -776,17 +774,6 @@ export default function RiskyRagGame() {
               </div>
             </div>
           )}
-
-          {/* Historical Chat - in sidebar */}
-          {showHistoricalChat && myPlayer && (
-            <div className="mt-4 flex-1 min-h-0">
-              <HistoricalChat
-                gameId={game._id}
-                playerNation={myPlayer.nation}
-                gameDate={game.currentDate}
-              />
-            </div>
-          )}
         </div>
 
         {/* Center: Map */}
@@ -829,6 +816,17 @@ export default function RiskyRagGame() {
           players={players}
           isOpen={isSpectatorMode}
           onToggle={() => setIsSpectatorMode(!isSpectatorMode)}
+        />
+      )}
+
+      {/* Historical Chat Sidebar */}
+      {myPlayer && (
+        <HistoricalChat
+          gameId={game._id}
+          playerNation={myPlayer.nation}
+          gameDate={game.currentDate}
+          isOpen={showHistoricalChat}
+          onClose={() => setShowHistoricalChat(false)}
         />
       )}
 

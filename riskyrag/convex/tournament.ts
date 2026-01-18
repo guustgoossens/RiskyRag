@@ -29,8 +29,8 @@ export const createAIGame = mutation({
     > = {
       "1453": {
         startDate: new Date("1453-01-01").getTime(),
-        nations: ["Ottoman Empire", "Byzantine Empire"],
-        colors: ["#c41e3a", "#ffd700"],
+        nations: ["Ottoman Empire", "Byzantine Empire", "Venice", "Genoa"],
+        colors: ["#2E7D32", "#7B1FA2", "#1565C0", "#C62828"],
       },
       "1776": {
         startDate: new Date("1776-01-01").getTime(),
@@ -169,6 +169,20 @@ export const getGameStatus = query({
       )
       .collect();
 
+    // Get recent errors from agent activity
+    const recentErrorActivities = await ctx.db
+      .query("agentActivity")
+      .withIndex("by_game_status", (q) =>
+        q.eq("gameId", args.gameId).eq("status", "error")
+      )
+      .order("desc")
+      .take(3);
+
+    const recentErrors = recentErrorActivities.map((a) => {
+      const tool = a.currentTool || "unknown";
+      return `${a.nation}: ${tool} failed`;
+    });
+
     return {
       game,
       players: players.map((p) => ({
@@ -180,13 +194,17 @@ export const getGameStatus = query({
       })),
       currentActivity: activities[0]
         ? {
+            activityId: activities[0]._id,
             playerId: activities[0].playerId,
             nation: activities[0].nation,
+            model: activities[0].model,
             currentTool: activities[0].currentTool,
+            currentToolDescription: activities[0].currentToolDescription,
             reasoning: activities[0].reasoning,
           }
         : null,
       totalActions: logs.length,
+      recentErrors,
     };
   },
 });
