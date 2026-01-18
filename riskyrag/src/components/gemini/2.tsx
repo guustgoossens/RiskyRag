@@ -582,10 +582,13 @@ export default function Lobby() {
                         onClick={handleStartGame}
                         disabled={isLaunching}
                         className={`
-                          w-full group relative overflow-hidden rounded py-4 px-6
+                          w-full group relative overflow-hidden rounded-lg py-4 px-6
                           flex items-center justify-center gap-3
-                          transition-all duration-300
-                          ${isLaunching ? "bg-slate-800 cursor-wait" : "bg-[#D4AF37] hover:bg-[#F5E6CC] shadow-[0_0_20px_rgba(212,175,55,0.4)] hover:shadow-[0_0_30px_rgba(212,175,55,0.6)]"}
+                          transition-all duration-300 font-cinzel
+                          ${isLaunching
+                            ? "bg-slate-800 cursor-wait"
+                            : "bg-gradient-to-r from-[#D4AF37] via-[#F5D76E] to-[#D4AF37] hover:from-[#F5D76E] hover:via-[#FFE49C] hover:to-[#F5D76E] shadow-[0_0_25px_rgba(212,175,55,0.5)] hover:shadow-[0_0_35px_rgba(245,215,110,0.6)] border border-[#B8860B]"
+                          }
                         `}
                       >
                         {isLaunching ? (
@@ -597,27 +600,23 @@ export default function Lobby() {
                           </>
                         ) : (
                           <>
-                            <span
-                              className={`font-serif font-bold text-lg tracking-[0.15em] ${COLORS.voidNavyDark}`}
-                            >
+                            <span className="font-bold text-lg tracking-[0.15em] text-[#0F172A]">
                               {gameMode === "spectate" ? "START SIMULATION" : "BEGIN CAMPAIGN"}
                             </span>
                             {gameMode === "spectate" ? (
-                              <Eye className={`w-5 h-5 ${COLORS.voidNavyDark}`} />
+                              <Eye className="w-5 h-5 text-[#0F172A]" />
                             ) : (
-                              <Swords
-                                className={`w-5 h-5 ${COLORS.voidNavyDark} group-hover:rotate-12 transition-transform`}
-                              />
+                              <Swords className="w-5 h-5 text-[#0F172A] group-hover:rotate-12 transition-transform" />
                             )}
                           </>
                         )}
 
                         {/* Decorative Lines on Button */}
                         {!isLaunching && (
-                          <div className="absolute top-0 bottom-0 left-4 w-px bg-slate-900/10" />
+                          <div className="absolute top-0 bottom-0 left-4 w-px bg-[#B8860B]/30" />
                         )}
                         {!isLaunching && (
-                          <div className="absolute top-0 bottom-0 right-4 w-px bg-slate-900/10" />
+                          <div className="absolute top-0 bottom-0 right-4 w-px bg-[#B8860B]/30" />
                         )}
                       </button>
 

@@ -1,16 +1,21 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import {
   Shield,
   Cpu,
   User,
-  Terminal,
   Map as MapIcon,
   ChevronRight,
   Crosshair,
   Activity,
   Brain,
   Loader2,
+  Eye,
+  BookOpen,
+  Swords,
+  Zap,
+  Target,
+  Layers,
 } from "lucide-react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
@@ -18,6 +23,10 @@ import type { Id, Doc } from "../../../convex/_generated/dataModel";
 import { GraphMap } from "../map/GraphMap";
 import { AgentTurnViewer, AgentViewerButton } from "@/components/agent";
 import { useAgentStream } from "@/hooks/useAgentStream";
+import { TurnTimeline } from "@/components/timeline";
+import { SpectatorOverlay } from "@/components/spectator/SpectatorOverlay";
+import { DiplomaticScroll } from "@/components/diplomacy/DiplomaticScroll";
+import { HistoricalChat } from "@/components/chat/HistoricalChat";
 
 // --- Design System Constants ---
 const COLORS = {
@@ -256,41 +265,6 @@ function PlayerList({
   );
 }
 
-// --- System Log Component ---
-function SystemLog({ logs }: { logs: LogEntry[] }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [logs]);
-
-  return (
-    <Card className="h-48 flex flex-col bg-[#0F172A] font-mono text-xs border-t-4 border-t-[#00FFA3]">
-      <div className="p-2 bg-slate-950 border-b border-slate-900 flex justify-between items-center">
-        <span className="text-[#00FFA3] font-bold flex items-center gap-2">
-          <Terminal size={12} /> SYSTEM LOG
-        </span>
-        <div className="flex gap-1">
-          <div className="w-2 h-2 rounded-full bg-[#C0392B] animate-pulse" />
-          <div className="w-2 h-2 rounded-full bg-[#D4AF37] animate-pulse delay-75" />
-          <div className="w-2 h-2 rounded-full bg-[#00FFA3] animate-pulse delay-150" />
-        </div>
-      </div>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-1">
-        {logs.length === 0 && <span className="text-slate-600 italic">System ready. Waiting for input...</span>}
-        {logs.map((log, i) => (
-          <div key={i} className="flex gap-2">
-            <span className="text-slate-600">[{log.time}]</span>
-            <span className={`${log.color || "text-slate-300"}`}>{log.message}</span>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-}
-
 // --- Attack Dialog State ---
 interface AttackDialogState {
   isOpen: boolean;
@@ -307,6 +281,12 @@ interface ConquestDialogState {
   selectedTroops: number;
   fromName: string;
   toName: string;
+}
+
+// --- Card Trade Dialog State ---
+interface CardTradeDialogState {
+  isOpen: boolean;
+  selectedIndices: number[];
 }
 
 // --- Main Game Component ---
@@ -337,6 +317,12 @@ export default function RiskyRagGame() {
     toName: "",
   });
 
+  // Card trade dialog state
+  const [cardDialog, setCardDialog] = useState<CardTradeDialogState>({
+    isOpen: false,
+    selectedIndices: [],
+  });
+
   // Convex queries
   const gameState = useQuery(api.games.getFullState, { gameId: gameId as Id<"games"> });
 
@@ -349,10 +335,28 @@ export default function RiskyRagGame() {
   const finishSetupMutation = useMutation(api.territories.finishSetup);
   const advancePhase = useMutation(api.games.advancePhase);
   const nextTurn = useMutation(api.games.nextTurn);
+  const tradeCardsMutation = useMutation(api.territories.tradeCards);
 
   // Agent observability state
   const [isAgentViewerOpen, setIsAgentViewerOpen] = useState(false);
   const agentStream = useAgentStream(gameId as Id<"games">);
+
+  // UI overhaul state
+  const [isSpectatorMode, setIsSpectatorMode] = useState(false);
+  const [showHistoricalChat, setShowHistoricalChat] = useState(false);
+  const [pendingNegotiation, setPendingNegotiation] = useState<(Doc<"negotiations"> & { senderNation: string; senderColor: string }) | null>(null);
+  const [isVictoryDismissed, setIsVictoryDismissed] = useState(false);
+
+  // Query pending negotiations for current player
+  const pendingNegotiationsQuery = useQuery(
+    api.negotiations.getPendingForPlayer,
+    gameState?.game?.currentPlayerId
+      ? { gameId: gameId as Id<"games">, playerId: gameState.game.currentPlayerId }
+      : "skip"
+  );
+
+  // Respond to negotiation mutation
+  const respondToNegotiation = useMutation(api.negotiations.respond);
 
   // Show conquest dialog when there's a pending conquest
   // NOTE: Must be before any early returns to maintain hook order
@@ -371,6 +375,23 @@ export default function RiskyRagGame() {
       setConquestDialog((prev) => ({ ...prev, isOpen: false }));
     }
   }, [pendingConquest, conquestDialog.isOpen]);
+
+  // Show diplomatic scroll popup for new negotiations (human players only)
+  useEffect(() => {
+    if (
+      pendingNegotiationsQuery &&
+      pendingNegotiationsQuery.length > 0 &&
+      !pendingNegotiation &&
+      gameState?.game?.currentPlayerId
+    ) {
+      const currentPlayer = gameState.players?.find(
+        (p) => p._id === gameState.game?.currentPlayerId
+      );
+      if (currentPlayer?.isHuman) {
+        setPendingNegotiation(pendingNegotiationsQuery[0]);
+      }
+    }
+  }, [pendingNegotiationsQuery, pendingNegotiation, gameState?.game?.currentPlayerId, gameState?.players]);
 
   // Log helper
   const addLog = (message: string, color = "text-slate-300") => {
@@ -495,7 +516,8 @@ export default function RiskyRagGame() {
           setSelectedTerritory(null);
         } else if (isOwner) {
           const sourceTerritory = territories.find((t) => t._id === selectedTerritory);
-          if (sourceTerritory && sourceTerritory.adjacentTo.includes(territory.name)) {
+          // Let backend validate connected path - allow clicking any owned territory
+          if (sourceTerritory && isOwner) {
             try {
               await moveTroops({
                 gameId: game._id,
@@ -637,9 +659,78 @@ export default function RiskyRagGame() {
     }
   };
 
+  // Handle card trade
+  const handleTradeCards = async () => {
+    if (!myPlayer || cardDialog.selectedIndices.length !== 3) return;
+
+    try {
+      const result = await tradeCardsMutation({
+        gameId: game._id,
+        playerId: myPlayer._id,
+        cardIndices: cardDialog.selectedIndices,
+      });
+      addLog(
+        `Traded cards for ${result.troopsEarned} bonus troops! (${result.cardsRemaining} cards remaining)`,
+        "text-amber-400"
+      );
+      setCardDialog({ isOpen: false, selectedIndices: [] });
+    } catch (err) {
+      addLog(`Trade error: ${err}`, "text-red-400");
+    }
+  };
+
+  // Toggle card selection for trading
+  const toggleCardSelection = (index: number) => {
+    setCardDialog((prev) => {
+      const isSelected = prev.selectedIndices.includes(index);
+      const newIndices = isSelected
+        ? prev.selectedIndices.filter((i) => i !== index)
+        : prev.selectedIndices.length < 3
+          ? [...prev.selectedIndices, index]
+          : prev.selectedIndices;
+      return { ...prev, selectedIndices: newIndices };
+    });
+  };
+
+  // Check if selected cards form a valid set
+  const isValidCardSelection = (): boolean => {
+    if (cardDialog.selectedIndices.length !== 3) return false;
+    const cards = myPlayer?.cards ?? [];
+    const selectedCards = cardDialog.selectedIndices.map((i) => cards[i]);
+    const types = new Set(selectedCards);
+    return types.size === 1 || types.size === 3;
+  };
+
   // Format date for display
   const gameDate = new Date(game.currentDate);
   const gameDateStr = gameDate.toLocaleDateString("en-US", { year: "numeric", month: "long" });
+
+  // Handle negotiation response
+  const handleNegotiationResponse = async (
+    status: "accepted" | "rejected" | "countered",
+    message?: string
+  ) => {
+    if (!pendingNegotiation || !myPlayer) return;
+
+    try {
+      await respondToNegotiation({
+        negotiationId: pendingNegotiation._id,
+        playerId: myPlayer._id,
+        status,
+        responseMessage: message,
+      });
+      addLog(
+        `Responded to ${pendingNegotiation.senderNation}: ${status}`,
+        status === "accepted" ? "text-green-400" : status === "rejected" ? "text-red-400" : "text-blue-400"
+      );
+    } catch (err) {
+      addLog(`Failed to respond: ${err}`, "text-red-400");
+    }
+    setPendingNegotiation(null);
+  };
+
+  // Check if this is an AI vs AI game for spectator mode
+  const isAllAI = players.every((p) => !p.isHuman);
 
   return (
     <div className="flex flex-col h-screen bg-[#0F172A] text-slate-200 font-sans overflow-hidden">
@@ -688,6 +779,60 @@ export default function RiskyRagGame() {
               <span className="text-2xl font-bold text-yellow-400 animate-pulse">{reinforcementsLeft}</span>
             </div>
           )}
+          {/* Card Display - Imperial Gold styling */}
+          {myPlayer && (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => phase === "REINFORCE" && (myPlayer.cards?.length ?? 0) >= 3 && setCardDialog({ isOpen: true, selectedIndices: [] })}
+                disabled={phase !== "REINFORCE" || (myPlayer.cards?.length ?? 0) < 3}
+                className={`
+                  flex items-center gap-2 px-3 py-2 rounded-lg border transition-all
+                  ${(myPlayer.cards?.length ?? 0) >= 5
+                    ? 'bg-[#C0392B]/20 border-[#C0392B] animate-pulse'
+                    : (myPlayer.cards?.length ?? 0) >= 3 && phase === "REINFORCE"
+                      ? 'bg-[#D4AF37]/10 border-[#D4AF37]/50 hover:border-[#D4AF37] hover:shadow-[0_0_15px_rgba(212,175,55,0.3)] cursor-pointer'
+                      : 'bg-slate-800/50 border-slate-700 cursor-default'
+                  }
+                `}
+              >
+                <Layers size={16} className={(myPlayer.cards?.length ?? 0) >= 5 ? 'text-[#C0392B]' : 'text-[#D4AF37]'} />
+                <span className={`font-cinzel text-sm uppercase tracking-wider ${(myPlayer.cards?.length ?? 0) >= 5 ? 'text-[#C0392B]' : 'text-[#D4AF37]'}`}>
+                  {myPlayer.cards?.length ?? 0} Cards
+                </span>
+                {(myPlayer.cards?.length ?? 0) >= 5 && phase === "REINFORCE" && (
+                  <span className="text-xs text-[#C0392B] font-bold ml-1">TRADE NOW</span>
+                )}
+              </button>
+            </div>
+          )}
+          {/* Historical Chat Toggle */}
+          {myPlayer && (
+            <button
+              onClick={() => setShowHistoricalChat(!showHistoricalChat)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+                showHistoricalChat
+                  ? "bg-indigo-600 text-white"
+                  : "bg-indigo-900/30 text-indigo-400 hover:bg-indigo-900/50"
+              }`}
+            >
+              <BookOpen size={16} />
+              <span className="text-sm">History</span>
+            </button>
+          )}
+          {/* Spectator Mode Toggle (AI vs AI games only) */}
+          {isAllAI && (
+            <button
+              onClick={() => setIsSpectatorMode(!isSpectatorMode)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+                isSpectatorMode
+                  ? "bg-[#00FFA3] text-[#0F172A]"
+                  : "bg-[#00FFA3]/20 text-[#00FFA3] hover:bg-[#00FFA3]/30"
+              }`}
+            >
+              <Eye size={16} />
+              <span className="text-sm">Spectate</span>
+            </button>
+          )}
           {/* Watch AI Button */}
           <AgentViewerButton
             onClick={() => setIsAgentViewerOpen(true)}
@@ -732,10 +877,10 @@ export default function RiskyRagGame() {
                 <strong className="text-blue-400">Reinforce:</strong> Click your territory to add troops.
               </li>
               <li>
-                <strong className="text-red-400">Attack:</strong> Click source then target.
+                <strong className="text-red-400">Attack:</strong> Click source then adjacent target.
               </li>
               <li>
-                <strong className="text-green-400">Fortify:</strong> Move troops between adjacent territories.
+                <strong className="text-green-400">Fortify:</strong> Move troops through any connected chain of your territories.
               </li>
             </ul>
           </div>
@@ -747,6 +892,17 @@ export default function RiskyRagGame() {
                 <User className="w-4 h-4" />
                 <span>Playing as <strong>{myPlayer.nation}</strong></span>
               </div>
+            </div>
+          )}
+
+          {/* Historical Chat - in sidebar */}
+          {showHistoricalChat && myPlayer && (
+            <div className="mt-4 flex-1 min-h-0">
+              <HistoricalChat
+                gameId={game._id}
+                playerNation={myPlayer.nation}
+                gameDate={game.currentDate}
+              />
             </div>
           )}
         </div>
@@ -783,12 +939,38 @@ export default function RiskyRagGame() {
             )}
           </div>
 
-          {/* Bottom Log */}
-          <div className="p-4 z-10">
-            <SystemLog logs={logs} />
+          {/* Turn Timeline */}
+          <div className="z-10">
+            <TurnTimeline
+              gameId={game._id}
+              isSpectatorMode={isSpectatorMode}
+            />
           </div>
         </main>
       </div>
+
+
+      {/* Spectator Overlay */}
+      {isAllAI && (
+        <SpectatorOverlay
+          gameId={game._id}
+          players={players}
+          isOpen={isSpectatorMode}
+          onToggle={() => setIsSpectatorMode(!isSpectatorMode)}
+        />
+      )}
+
+      {/* Diplomatic Scroll Popup */}
+      {pendingNegotiation && myPlayer && (
+        <DiplomaticScroll
+          negotiation={pendingNegotiation}
+          recipientNation={myPlayer.nation}
+          isOpen={true}
+          onClose={() => setPendingNegotiation(null)}
+          onRespond={handleNegotiationResponse}
+          isHumanPlayer={myPlayer.isHuman}
+        />
+      )}
 
       {/* Attack Dialog - Dice Selection */}
       {attackDialog.isOpen && attackDialog.sourceTerritory && attackDialog.targetTerritory && (
@@ -907,6 +1089,150 @@ export default function RiskyRagGame() {
         </div>
       )}
 
+      {/* Card Trade Dialog - Historical "War Room" aesthetic */}
+      {cardDialog.isOpen && myPlayer && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-[#F5E6CC] border-2 border-[#D4AF37] rounded-lg shadow-2xl shadow-black/50 overflow-hidden w-[32rem]">
+            {/* Header with parchment texture feel */}
+            <div className="bg-[#0F172A]/10 border-b border-[#D4AF37]/30 px-6 py-4">
+              <h3 className="font-cinzel text-xl font-bold text-[#0F172A] uppercase tracking-widest flex items-center gap-3">
+                <Layers className="text-[#D4AF37]" size={24} />
+                Risk Cards
+              </h3>
+              <p className="text-sm text-[#0F172A]/70 mt-1 font-inter">
+                Select 3 cards: three of a kind or one of each type
+              </p>
+            </div>
+
+            <div className="p-6">
+              {/* Trade Bonus Banner */}
+              {game.cardTradeCount !== undefined && (
+                <div className="mb-6 bg-[#D4AF37]/20 border border-[#D4AF37]/50 rounded-lg px-4 py-3 text-center">
+                  <span className="text-[#0F172A]/60 text-sm">Current trade value:</span>
+                  <span className="font-cinzel text-2xl font-bold text-[#0F172A] ml-2">
+                    {[4, 6, 8, 10, 12, 15, 20][Math.min(game.cardTradeCount ?? 0, 6)]} Troops
+                  </span>
+                </div>
+              )}
+
+              {/* Card Grid - Actual card shapes */}
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                {(myPlayer.cards ?? []).length === 0 ? (
+                  <p className="col-span-3 text-[#0F172A]/50 text-center py-8 font-inter">
+                    No cards in hand.
+                  </p>
+                ) : (
+                  (myPlayer.cards ?? []).map((card, index) => {
+                    const isSelected = cardDialog.selectedIndices.includes(index);
+                    const cardConfig: Record<string, { icon: React.ReactNode; color: string; bgColor: string }> = {
+                      infantry: {
+                        icon: <Swords size={32} />,
+                        color: '#B91C1C',
+                        bgColor: '#B91C1C/10',
+                      },
+                      cavalry: {
+                        icon: <Zap size={32} />,
+                        color: '#0369A1',
+                        bgColor: '#0369A1/10',
+                      },
+                      artillery: {
+                        icon: <Target size={32} />,
+                        color: '#15803D',
+                        bgColor: '#15803D/10',
+                      },
+                    };
+                    const config = cardConfig[card] ?? { icon: <Layers size={32} />, color: '#64748B', bgColor: '#64748B/10' };
+
+                    return (
+                      <button
+                        key={index}
+                        onClick={() => toggleCardSelection(index)}
+                        className={`
+                          relative flex flex-col items-center justify-center
+                          aspect-[2.5/3.5] rounded-lg border-2 transition-all duration-200
+                          ${isSelected
+                            ? 'border-[#D4AF37] shadow-[0_0_20px_rgba(212,175,55,0.6)] scale-105 bg-white'
+                            : 'border-[#0F172A]/20 bg-white/80 hover:border-[#D4AF37]/50 hover:shadow-lg'
+                          }
+                        `}
+                      >
+                        {/* Card inner content */}
+                        <div
+                          className="w-12 h-12 rounded-full flex items-center justify-center mb-2"
+                          style={{ backgroundColor: `${config.color}15` }}
+                        >
+                          <div style={{ color: config.color }}>
+                            {config.icon}
+                          </div>
+                        </div>
+                        <span
+                          className="font-cinzel text-xs font-bold uppercase tracking-wider"
+                          style={{ color: config.color }}
+                        >
+                          {card}
+                        </span>
+
+                        {/* Selection checkmark */}
+                        {isSelected && (
+                          <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-[#D4AF37] flex items-center justify-center shadow-lg">
+                            <span className="text-white text-sm font-bold">✓</span>
+                          </div>
+                        )}
+
+                        {/* Card corner decorations */}
+                        <div className="absolute top-2 left-2 text-xs font-cinzel" style={{ color: config.color }}>
+                          {card === 'infantry' ? 'I' : card === 'cavalry' ? 'C' : 'A'}
+                        </div>
+                        <div className="absolute bottom-2 right-2 text-xs font-cinzel rotate-180" style={{ color: config.color }}>
+                          {card === 'infantry' ? 'I' : card === 'cavalry' ? 'C' : 'A'}
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Selection Status */}
+              <div className="mb-6 text-center">
+                <span className="text-sm text-[#0F172A]/60 font-inter">
+                  Selected: <strong className="text-[#0F172A]">{cardDialog.selectedIndices.length}</strong> / 3
+                </span>
+                {cardDialog.selectedIndices.length === 3 && (
+                  isValidCardSelection() ? (
+                    <span className="ml-3 text-[#27AE60] font-bold">✓ Valid set</span>
+                  ) : (
+                    <span className="ml-3 text-[#C0392B] font-bold">✗ Invalid combination</span>
+                  )
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setCardDialog({ isOpen: false, selectedIndices: [] })}
+                  className="flex-1 px-4 py-3 rounded-lg border-2 border-[#0F172A]/20 text-[#0F172A]/70 font-cinzel uppercase tracking-wider text-sm hover:border-[#0F172A]/40 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleTradeCards}
+                  disabled={!isValidCardSelection()}
+                  className={`
+                    flex-1 px-4 py-3 rounded-lg font-cinzel uppercase tracking-wider text-sm transition-all
+                    ${isValidCardSelection()
+                      ? 'bg-[#D4AF37] hover:bg-[#F5E6CC] text-[#0F172A] border-2 border-[#D4AF37] shadow-lg hover:shadow-[0_0_20px_rgba(212,175,55,0.4)]'
+                      : 'bg-[#0F172A]/10 text-[#0F172A]/30 border-2 border-[#0F172A]/10 cursor-not-allowed'
+                    }
+                  `}
+                >
+                  Trade Cards
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Pending Conquest Indicator */}
       {hasPendingConquest && !conquestDialog.isOpen && (
         <div className="fixed bottom-24 right-4 bg-yellow-500/20 border border-yellow-500 rounded-lg p-4 z-40">
@@ -923,16 +1249,26 @@ export default function RiskyRagGame() {
       />
 
       {/* Game Over Overlay */}
-      {game.status === "finished" && (
+      {game.status === "finished" && !isVictoryDismissed && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <div className="bg-slate-900 border-2 border-[#D4AF37] rounded-lg p-8 text-center max-w-md">
             <h2 className="text-3xl font-cinzel font-bold text-[#D4AF37] mb-4">VICTORY!</h2>
             <p className="text-slate-300 mb-6">
               {players.find((p) => p._id === game.winnerId)?.nation} has achieved dominance!
             </p>
-            <Link to="/lobby">
-              <Button variant="primary">Return to Lobby</Button>
-            </Link>
+            <div className="flex flex-col gap-3">
+              <Link to="/lobby">
+                <Button variant="primary" className="w-full">Return to Lobby</Button>
+              </Link>
+              <Button
+                variant="neutral"
+                onClick={() => setIsVictoryDismissed(true)}
+                className="w-full"
+              >
+                <Eye size={16} />
+                Investigate Game
+              </Button>
+            </div>
           </div>
         </div>
       )}

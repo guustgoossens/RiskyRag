@@ -1,17 +1,21 @@
 /**
- * RagQueryCard - Displays a RAG query with temporal filter visualization
+ * RagQueryCard - Displays a RAG query with temporal filter visualization and source citations
  */
 
 import { cn } from "@/lib/utils";
 import type { AgentRagQuery } from "@/hooks/useAgentStream";
 import { TemporalFilterBadge } from "./TemporalFilterBadge";
+import { SourceCitation, CitationList } from "@/components/citations/SourceCitation";
 
 interface RagQueryCardProps {
   ragQuery: AgentRagQuery;
   className?: string;
+  showSnippets?: boolean;
 }
 
-export function RagQueryCard({ ragQuery, className }: RagQueryCardProps) {
+export function RagQueryCard({ ragQuery, className, showSnippets = true }: RagQueryCardProps) {
+  const snippets = ragQuery.snippets ?? [];
+
   return (
     <div
       className={cn(
@@ -48,6 +52,52 @@ export function RagQueryCard({ ragQuery, className }: RagQueryCardProps) {
 
       {/* Temporal filter info */}
       <TemporalFilterBadge ragQuery={ragQuery} />
+
+      {/* Snippets with inline citations */}
+      {showSnippets && snippets.length > 0 && (
+        <div className="mt-3 space-y-2">
+          <div className="text-xs font-medium text-slate-400 uppercase tracking-wide">
+            Sources Found
+          </div>
+          {snippets.slice(0, 3).map((snippet, index) => (
+            <div
+              key={index}
+              className="p-2 bg-slate-800/50 rounded text-xs"
+            >
+              <p className="text-slate-300 line-clamp-2">
+                {snippet.content}
+              </p>
+              <div className="mt-1 flex items-center justify-between">
+                <span className="text-slate-500 text-[10px]">
+                  {snippet.date ? new Date(snippet.date).getFullYear() : "Unknown"}
+                </span>
+                <SourceCitation
+                  url={snippet.sourceUrl ?? null}
+                  source={snippet.source}
+                  title={snippet.title}
+                  variant="inline"
+                />
+              </div>
+            </div>
+          ))}
+          {snippets.length > 3 && (
+            <p className="text-xs text-slate-500 italic">
+              +{snippets.length - 3} more sources
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Citation list at bottom */}
+      {snippets.length > 0 && (
+        <CitationList
+          citations={snippets.map((s) => ({
+            url: s.sourceUrl ?? null,
+            source: s.source,
+            title: s.title,
+          }))}
+        />
+      )}
     </div>
   );
 }
@@ -59,24 +109,43 @@ interface RagQueryInlineProps {
   question: string;
   snippetsReturned: number;
   snippetsBlocked: number;
+  snippets?: Array<{
+    title?: string;
+    source: string;
+    sourceUrl?: string;
+  }>;
 }
 
 export function RagQueryInline({
   question,
   snippetsReturned,
   snippetsBlocked,
+  snippets,
 }: RagQueryInlineProps) {
   return (
     <div className="mt-1 pl-6">
       <p className="text-xs text-slate-400 italic truncate">
         "{question.length > 60 ? question.slice(0, 60) + "..." : question}"
       </p>
-      <div className="flex items-center gap-2 text-xs mt-0.5">
+      <div className="flex items-center gap-2 text-xs mt-0.5 flex-wrap">
         <span className="text-green-400">{snippetsReturned} sources</span>
         {snippetsBlocked > 0 && (
           <span className="text-amber-400">
             {snippetsBlocked} blocked
           </span>
+        )}
+        {snippets && snippets.length > 0 && (
+          <div className="flex gap-1">
+            {snippets.slice(0, 2).map((snippet, index) => (
+              <SourceCitation
+                key={index}
+                url={snippet.sourceUrl ?? null}
+                source={snippet.source}
+                title={snippet.title}
+                variant="inline"
+              />
+            ))}
+          </div>
         )}
       </div>
     </div>
