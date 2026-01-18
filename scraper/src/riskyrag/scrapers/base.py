@@ -6,9 +6,9 @@ along with common utilities for rate limiting, caching, and retry logic.
 
 import asyncio
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncIterator
 
 import httpx
 import structlog
@@ -54,7 +54,7 @@ class BaseScraper(ABC):
             cache_dir: Directory to store cached documents
             use_cache: Whether to use caching
         """
-        self.cache_dir = cache_dir or Path(".cache")
+        self.cache_dir = (cache_dir or Path(".cache")).resolve()
         self.use_cache = use_cache
         self._semaphore = asyncio.Semaphore(self.max_concurrent_requests)
         self._last_request_time = 0.0
@@ -153,7 +153,7 @@ class BaseScraper(ABC):
         cache_path = self._get_cache_path(url)
         if cache_path.exists():
             try:
-                html = cache_path.read_text()
+                html = cache_path.read_text(encoding="utf-8")
                 return RawDocument(
                     url=url,
                     html=html,
@@ -169,7 +169,8 @@ class BaseScraper(ABC):
         try:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             cache_path = self._get_cache_path(doc.url)
-            cache_path.write_text(doc.html)
+            # Use errors='replace' to handle any encoding issues
+            cache_path.write_text(doc.html, encoding="utf-8", errors="replace")
         except Exception as e:
             logger.warning("Failed to cache document", url=doc.url, error=str(e))
 

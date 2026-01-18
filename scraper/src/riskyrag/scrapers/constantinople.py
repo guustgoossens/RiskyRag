@@ -5,8 +5,8 @@ focusing on the 1400-1500 period for the 1453 scenario.
 """
 
 import re
+from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import AsyncIterator
 
 import structlog
 from bs4 import BeautifulSoup
@@ -48,8 +48,8 @@ WIKIPEDIA_SOURCES_1453 = [
 ]
 
 
-@register_scraper("wikipedia")
-class WikipediaScraper(BaseScraper):
+@register_scraper("constantinople")
+class ConstantinopleScraper(BaseScraper):
     """Scraper for Wikipedia historical articles.
 
     Extracts structured historical events from Wikipedia articles,
@@ -57,8 +57,8 @@ class WikipediaScraper(BaseScraper):
     """
 
     # Rate limit for Wikipedia (be nice!)
-    requests_per_second: float = 1.0
-    max_concurrent_requests: int = 3
+    requests_per_second: float = 0.5  # 1 request every 2 seconds
+    max_concurrent_requests: int = 2  # Only 2 concurrent requests
 
     @property
     def name(self) -> str:
@@ -125,13 +125,18 @@ class WikipediaScraper(BaseScraper):
 
         # Extract the lead paragraph (summary)
         lead_paragraphs = []
-        for p in content_div.find_all("p", recursive=False):
+        # Find the parser output div which contains the actual content
+        parser_output = content_div.find("div", {"class": "mw-parser-output"})
+        search_div = parser_output if parser_output else content_div
+        
+        for p in search_div.find_all("p", limit=10):
             text = p.get_text().strip()
-            if text and not text.startswith("["):
+            # Skip empty paragraphs and coordinate/reference markers
+            if text and len(text) > 20 and not text.startswith("["):
                 lead_paragraphs.append(text)
                 if len(lead_paragraphs) >= 3:
                     break
-
+        
         if lead_paragraphs:
             summary = " ".join(lead_paragraphs)
 
@@ -165,7 +170,7 @@ class WikipediaScraper(BaseScraper):
         sections = content_div.find_all(["h2", "h3"])
         for section in sections:
             section_title = section.get_text().strip()
-            if any(skip in section_title.lower() for skip in ["references", "see also", "notes", "external links"]):
+            if any(skip in section_title.lower() for skip in ["references", "see also", "notes", "external links"]):  # noqa: E501
                 continue
 
             # Get the content following this section
