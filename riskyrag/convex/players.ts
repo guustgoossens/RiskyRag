@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { SCENARIOS, type ScenarioId } from "./scenarios";
+import { SCENARIOS, type ScenarioId, getTotalStartingTroops } from "./scenarios";
 
 // Join a game as a human player
 export const join = mutation({
@@ -172,6 +172,12 @@ export const initializeGame = mutation({
       if (!takenNations.has(nation.name)) {
         // Use model from aiModels override if provided, otherwise fall back to scenario default
         const modelOverride = args.aiModels?.[nation.name];
+        // Calculate total starting troops for this nation
+        const totalTroops = getTotalStartingTroops(nation);
+        const territoryCount = nation.startTerritories.length;
+        // Setup troops = total - 1 per territory (each territory starts with 1)
+        const setupTroops = totalTroops - territoryCount;
+
         const playerId = await ctx.db.insert("players", {
           gameId: args.gameId,
           isHuman: false,
@@ -180,16 +186,30 @@ export const initializeGame = mutation({
           color: nation.color,
           isEliminated: false,
           joinedAt: Date.now(),
+          setupTroopsRemaining: setupTroops,
         });
         playerMap[nation.name] = playerId;
       }
     }
 
-    // Create all territories
+    // Update existing players with their setup troops
+    for (const existingPlayer of existingPlayers) {
+      const nation = scenario.nations.find((n) => n.name === existingPlayer.nation);
+      if (nation) {
+        const totalTroops = getTotalStartingTroops(nation);
+        const territoryCount = nation.startTerritories.length;
+        const setupTroops = totalTroops - territoryCount;
+        await ctx.db.patch(existingPlayer._id, {
+          setupTroopsRemaining: setupTroops,
+        });
+      }
+    }
+
+    // Create all territories - each starts with 1 troop (Risk rules)
     for (const territory of scenario.territories) {
       // Find which nation owns this territory
       let ownerId: string | undefined;
-      let troops = 1;
+      let troops = 1; // All territories start with 1 troop
 
       // Check if territory is neutral (only for scenarios that have neutralTerritories)
       const neutralTerritories =
@@ -202,7 +222,7 @@ export const initializeGame = mutation({
           : {};
 
       if (neutralTerritories.includes(territory.name)) {
-        // Neutral territory - no owner
+        // Neutral territory - no owner, keeps scenario-defined troops
         ownerId = undefined;
         troops = neutralTroops[territory.name] ?? 3;
       } else {
@@ -211,8 +231,8 @@ export const initializeGame = mutation({
           const startTerritories = Array.from(nation.startTerritories) as string[];
           if (startTerritories.includes(territory.name)) {
             ownerId = playerMap[nation.name];
-            const startingTroops = nation.startingTroops as Record<string, number>;
-            troops = startingTroops[territory.name] ?? 1;
+            // All owned territories start with 1 troop - player places the rest during setup
+            troops = 1;
             break;
           }
         }

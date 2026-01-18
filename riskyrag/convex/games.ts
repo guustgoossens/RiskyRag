@@ -101,21 +101,35 @@ export const start = mutation({
     // Set first player
     const firstPlayer = players[0];
 
-    // Calculate first player's reinforcements
-    const territories = await ctx.db
-      .query("territories")
-      .withIndex("by_owner", (q) => q.eq("ownerId", firstPlayer._id))
-      .collect();
-    const baseReinforcements = Math.max(3, Math.floor(territories.length / 3));
+    // Check if any player has setup troops remaining
+    const hasSetupPhase = players.some((p) => (p.setupTroopsRemaining ?? 0) > 0);
 
-    await ctx.db.patch(args.gameId, {
-      status: "active",
-      currentTurn: 1,
-      currentPlayerId: firstPlayer._id,
-      phase: "reinforce",
-      reinforcementsRemaining: baseReinforcements,
-      fortifyUsed: false,
-    });
+    if (hasSetupPhase) {
+      // Start in setup phase - players place their initial troops
+      await ctx.db.patch(args.gameId, {
+        status: "active",
+        currentTurn: 0, // Turn 0 = setup phase
+        currentPlayerId: firstPlayer._id,
+        phase: "setup",
+        fortifyUsed: false,
+      });
+    } else {
+      // No setup needed, go directly to reinforce
+      const territories = await ctx.db
+        .query("territories")
+        .withIndex("by_owner", (q) => q.eq("ownerId", firstPlayer._id))
+        .collect();
+      const baseReinforcements = Math.max(3, Math.floor(territories.length / 3));
+
+      await ctx.db.patch(args.gameId, {
+        status: "active",
+        currentTurn: 1,
+        currentPlayerId: firstPlayer._id,
+        phase: "reinforce",
+        reinforcementsRemaining: baseReinforcements,
+        fortifyUsed: false,
+      });
+    }
 
     return { success: true };
   },

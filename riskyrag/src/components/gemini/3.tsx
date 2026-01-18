@@ -16,6 +16,8 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id, Doc } from "../../../convex/_generated/dataModel";
 import { GraphMap } from "../map/GraphMap";
+import { AgentTurnViewer, AgentViewerButton } from "@/components/agent";
+import { useAgentStream } from "@/hooks/useAgentStream";
 
 // --- Design System Constants ---
 const COLORS = {
@@ -343,8 +345,32 @@ export default function RiskyRagGame() {
   const confirmConquestMutation = useMutation(api.territories.confirmConquest);
   const moveTroops = useMutation(api.territories.moveTroops);
   const reinforceTerritory = useMutation(api.territories.reinforce);
+  const placeSetupTroop = useMutation(api.territories.placeSetupTroop);
+  const finishSetupMutation = useMutation(api.territories.finishSetup);
   const advancePhase = useMutation(api.games.advancePhase);
   const nextTurn = useMutation(api.games.nextTurn);
+
+  // Agent observability state
+  const [isAgentViewerOpen, setIsAgentViewerOpen] = useState(false);
+  const agentStream = useAgentStream(gameId as Id<"games">);
+
+  // Show conquest dialog when there's a pending conquest
+  // NOTE: Must be before any early returns to maintain hook order
+  const pendingConquest = gameState?.game?.pendingConquest;
+  useEffect(() => {
+    if (pendingConquest && !conquestDialog.isOpen) {
+      setConquestDialog({
+        isOpen: true,
+        minTroops: pendingConquest.minTroops,
+        maxTroops: pendingConquest.maxTroops,
+        selectedTroops: pendingConquest.minTroops,
+        fromName: pendingConquest.fromTerritory,
+        toName: pendingConquest.toTerritory,
+      });
+    } else if (!pendingConquest && conquestDialog.isOpen) {
+      setConquestDialog((prev) => ({ ...prev, isOpen: false }));
+    }
+  }, [pendingConquest, conquestDialog.isOpen]);
 
   // Log helper
   const addLog = (message: string, color = "text-slate-300") => {
@@ -375,25 +401,10 @@ export default function RiskyRagGame() {
   const isMyTurn = !!myPlayer; // Always true for current player in hotseat mode
 
   // Get phase from backend (uppercase for display compatibility)
-  const phase = (game.phase ?? "reinforce").toUpperCase() as "REINFORCE" | "ATTACK" | "FORTIFY";
+  const phase = (game.phase ?? "reinforce").toUpperCase() as "SETUP" | "REINFORCE" | "ATTACK" | "FORTIFY";
   const reinforcementsLeft = game.reinforcementsRemaining ?? 0;
+  const setupTroopsLeft = myPlayer?.setupTroopsRemaining ?? 0;
   const hasPendingConquest = !!game.pendingConquest;
-
-  // Show conquest dialog when there's a pending conquest
-  useEffect(() => {
-    if (game.pendingConquest && !conquestDialog.isOpen) {
-      setConquestDialog({
-        isOpen: true,
-        minTroops: game.pendingConquest.minTroops,
-        maxTroops: game.pendingConquest.maxTroops,
-        selectedTroops: game.pendingConquest.minTroops,
-        fromName: game.pendingConquest.fromTerritory,
-        toName: game.pendingConquest.toTerritory,
-      });
-    } else if (!game.pendingConquest && conquestDialog.isOpen) {
-      setConquestDialog((prev) => ({ ...prev, isOpen: false }));
-    }
-  }, [game.pendingConquest, conquestDialog.isOpen]);
 
   // Handle territory click
   const handleTerritoryClick = async (territoryId: Id<"territories">) => {
@@ -408,7 +419,24 @@ export default function RiskyRagGame() {
 
     const isOwner = territory.ownerId === myPlayer._id;
 
-    if (phase === "REINFORCE") {
+    if (phase === "SETUP") {
+      // Setup phase: place initial troops on owned territories
+      if (isOwner && setupTroopsLeft > 0) {
+        try {
+          await placeSetupTroop({
+            gameId: game._id,
+            playerId: myPlayer._id,
+            territory: territory.name,
+            troops: 1,
+          });
+          addLog(`Placed 1 troop on ${territory.displayName}`, "text-purple-400");
+        } catch (err) {
+          addLog(`Failed to place troop: ${err}`, "text-red-400");
+        }
+      } else if (!isOwner) {
+        addLog("You can only place troops on your own territories", "text-yellow-500");
+      }
+    } else if (phase === "REINFORCE") {
       if (isOwner && reinforcementsLeft > 0) {
         try {
           await reinforceTerritory({
@@ -589,6 +617,26 @@ export default function RiskyRagGame() {
     }
   };
 
+  // Finish setup phase for current player
+  const handleFinishSetup = async () => {
+    if (!myPlayer) return;
+
+    try {
+      const result = await finishSetupMutation({
+        gameId: game._id,
+        playerId: myPlayer._id,
+      });
+
+      if (result.setupComplete) {
+        addLog("Setup complete! Game begins.", "text-green-400");
+      } else {
+        addLog(`${result.nextPlayerNation}'s turn to place troops.`, "text-purple-400");
+      }
+    } catch (err) {
+      addLog(`Setup error: ${err}`, "text-red-400");
+    }
+  };
+
   // Format date for display
   const gameDate = new Date(game.currentDate);
   const gameDateStr = gameDate.toLocaleDateString("en-US", { year: "numeric", month: "long" });
@@ -619,7 +667,7 @@ export default function RiskyRagGame() {
             <div className="text-xs text-slate-500 font-cinzel font-bold uppercase tracking-widest">Phase</div>
             <div
               className={`text-xl font-mono font-bold ${
-                phase === "ATTACK" ? "text-red-500" : phase === "REINFORCE" ? "text-blue-500" : "text-green-500"
+                phase === "SETUP" ? "text-purple-500" : phase === "ATTACK" ? "text-red-500" : phase === "REINFORCE" ? "text-blue-500" : "text-green-500"
               }`}
             >
               {phase}
@@ -628,19 +676,41 @@ export default function RiskyRagGame() {
         </div>
 
         <div className="flex items-center gap-4">
+          {phase === "SETUP" && (
+            <div className="flex flex-col items-end">
+              <span className="text-xs text-slate-400">TROOPS TO PLACE</span>
+              <span className="text-2xl font-bold text-purple-400 animate-pulse">{setupTroopsLeft}</span>
+            </div>
+          )}
           {phase === "REINFORCE" && (
             <div className="flex flex-col items-end">
               <span className="text-xs text-slate-400">REINFORCEMENTS</span>
               <span className="text-2xl font-bold text-yellow-400 animate-pulse">{reinforcementsLeft}</span>
             </div>
           )}
-          <Button
-            variant={phase === "ATTACK" ? "danger" : "primary"}
-            onClick={handleNextPhase}
-            disabled={!isMyTurn || hasPendingConquest || (phase === "REINFORCE" && reinforcementsLeft > 0)}
-          >
-            {phase === "FORTIFY" ? "End Turn" : "Next Phase"} <ChevronRight size={16} />
-          </Button>
+          {/* Watch AI Button */}
+          <AgentViewerButton
+            onClick={() => setIsAgentViewerOpen(true)}
+            isRunning={agentStream.isRunning}
+            nation={agentStream.activity?.nation ?? undefined}
+          />
+          {phase === "SETUP" ? (
+            <Button
+              variant="primary"
+              onClick={handleFinishSetup}
+              disabled={!isMyTurn || setupTroopsLeft > 0}
+            >
+              Finish Placement <ChevronRight size={16} />
+            </Button>
+          ) : (
+            <Button
+              variant={phase === "ATTACK" ? "danger" : "primary"}
+              onClick={handleNextPhase}
+              disabled={!isMyTurn || hasPendingConquest || (phase === "REINFORCE" && reinforcementsLeft > 0)}
+            >
+              {phase === "FORTIFY" ? "End Turn" : "Next Phase"} <ChevronRight size={16} />
+            </Button>
+          )}
         </div>
       </header>
 
@@ -655,6 +725,9 @@ export default function RiskyRagGame() {
               <Crosshair size={12} /> CONTROLS
             </h4>
             <ul className="text-xs text-slate-500 space-y-2">
+              <li>
+                <strong className="text-purple-400">Setup:</strong> Click your territories to distribute starting troops.
+              </li>
               <li>
                 <strong className="text-blue-400">Reinforce:</strong> Click your territory to add troops.
               </li>
@@ -841,6 +914,13 @@ export default function RiskyRagGame() {
           <p className="text-xs text-slate-400">You must confirm troop movement.</p>
         </div>
       )}
+
+      {/* Agent Turn Viewer - Observability Panel */}
+      <AgentTurnViewer
+        gameId={game._id}
+        isOpen={isAgentViewerOpen}
+        onClose={() => setIsAgentViewerOpen(false)}
+      />
 
       {/* Game Over Overlay */}
       {game.status === "finished" && (

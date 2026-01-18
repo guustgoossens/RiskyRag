@@ -442,6 +442,12 @@ export type Scenario = (typeof SCENARIOS)[ScenarioId];
 export type Territory = Scenario["territories"][number];
 export type Nation = Scenario["nations"][number];
 
+// Helper to calculate total starting troops for a nation
+export function getTotalStartingTroops(nation: Nation): number {
+  const troops = nation.startingTroops as Record<string, number>;
+  return Object.values(troops).reduce((sum, count) => sum + count, 0);
+}
+
 // Helper to get territory by name
 export function getTerritoryData(
   scenario: ScenarioId,

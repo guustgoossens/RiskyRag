@@ -614,3 +614,176 @@ export const calculateReinforcements = query({
     };
   },
 });
+
+// Place troops during SETUP phase (initial troop placement - Risk rules)
+export const placeSetupTroop = mutation({
+  args: {
+    gameId: v.id("games"),
+    playerId: v.id("players"),
+    territory: v.string(),
+    troops: v.number(),
+  },
+  handler: async (ctx, args) => {
+    // Validate troops count
+    if (args.troops < 1) {
+      throw new Error("Must place at least 1 troop");
+    }
+
+    // Get game and check phase
+    const game = await ctx.db.get(args.gameId);
+    if (!game) {
+      throw new Error("Game not found");
+    }
+    if (game.phase !== "setup") {
+      throw new Error(`Cannot place setup troops during ${game.phase} phase`);
+    }
+    if (game.currentPlayerId !== args.playerId) {
+      throw new Error("Not your turn");
+    }
+
+    // Get player and check remaining troops
+    const player = await ctx.db.get(args.playerId);
+    if (!player) {
+      throw new Error("Player not found");
+    }
+    const remaining = player.setupTroopsRemaining ?? 0;
+    if (args.troops > remaining) {
+      throw new Error(`Only ${remaining} setup troops remaining`);
+    }
+
+    // Get territory and validate ownership
+    const territory = await ctx.db
+      .query("territories")
+      .withIndex("by_game_name", (q) =>
+        q.eq("gameId", args.gameId).eq("name", args.territory)
+      )
+      .first();
+
+    if (!territory) {
+      throw new Error("Territory not found");
+    }
+    if (territory.ownerId !== args.playerId) {
+      throw new Error("You don't own this territory");
+    }
+
+    // Place troops
+    await ctx.db.patch(territory._id, {
+      troops: territory.troops + args.troops,
+    });
+
+    // Update remaining setup troops
+    const newRemaining = remaining - args.troops;
+    await ctx.db.patch(args.playerId, {
+      setupTroopsRemaining: newRemaining,
+    });
+
+    // Log the action
+    await ctx.db.insert("gameLog", {
+      gameId: args.gameId,
+      turn: game.currentTurn,
+      playerId: args.playerId,
+      action: "setup_place",
+      details: {
+        territory: args.territory,
+        troops: args.troops,
+        remaining: newRemaining,
+      },
+      timestamp: Date.now(),
+    });
+
+    return { success: true, remaining: newRemaining };
+  },
+});
+
+// Finish setup for current player and advance to next player or start game
+export const finishSetup = mutation({
+  args: {
+    gameId: v.id("games"),
+    playerId: v.id("players"),
+  },
+  handler: async (ctx, args) => {
+    const game = await ctx.db.get(args.gameId);
+    if (!game) {
+      throw new Error("Game not found");
+    }
+    if (game.phase !== "setup") {
+      throw new Error("Not in setup phase");
+    }
+    if (game.currentPlayerId !== args.playerId) {
+      throw new Error("Not your turn");
+    }
+
+    // Check if player has placed all troops
+    const player = await ctx.db.get(args.playerId);
+    if (!player) {
+      throw new Error("Player not found");
+    }
+    if ((player.setupTroopsRemaining ?? 0) > 0) {
+      throw new Error(
+        `Must place all ${player.setupTroopsRemaining} remaining troops first`
+      );
+    }
+
+    // Get all players
+    const players = await ctx.db
+      .query("players")
+      .withIndex("by_game", (q) => q.eq("gameId", args.gameId))
+      .collect();
+
+    // Find next player who still has setup troops
+    const currentIndex = players.findIndex((p) => p._id === args.playerId);
+    let nextPlayerIndex = (currentIndex + 1) % players.length;
+    let checkedCount = 0;
+
+    while (checkedCount < players.length) {
+      const nextPlayer = players[nextPlayerIndex];
+      if ((nextPlayer.setupTroopsRemaining ?? 0) > 0) {
+        // This player still has troops to place
+        await ctx.db.patch(args.gameId, {
+          currentPlayerId: nextPlayer._id,
+        });
+        return {
+          success: true,
+          setupComplete: false,
+          nextPlayerId: nextPlayer._id,
+          nextPlayerNation: nextPlayer.nation,
+        };
+      }
+      nextPlayerIndex = (nextPlayerIndex + 1) % players.length;
+      checkedCount++;
+    }
+
+    // All players done with setup - transition to turn 1 reinforce phase
+    const firstPlayer = players[0];
+    const territories = await ctx.db
+      .query("territories")
+      .withIndex("by_owner", (q) => q.eq("ownerId", firstPlayer._id))
+      .collect();
+    const baseReinforcements = Math.max(3, Math.floor(territories.length / 3));
+
+    await ctx.db.patch(args.gameId, {
+      currentTurn: 1,
+      currentPlayerId: firstPlayer._id,
+      phase: "reinforce",
+      reinforcementsRemaining: baseReinforcements,
+      fortifyUsed: false,
+    });
+
+    // Log setup completion
+    await ctx.db.insert("gameLog", {
+      gameId: args.gameId,
+      turn: 0,
+      playerId: args.playerId,
+      action: "setup_complete",
+      details: { message: "All players have placed their initial troops" },
+      timestamp: Date.now(),
+    });
+
+    return {
+      success: true,
+      setupComplete: true,
+      firstPlayerId: firstPlayer._id,
+      reinforcements: baseReinforcements,
+    };
+  },
+});

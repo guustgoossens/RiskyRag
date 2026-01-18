@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { api } from "./_generated/api";
 import { SCENARIOS, type ScenarioId } from "./scenarios";
+import type { Doc, Id } from "./_generated/dataModel";
 
 // Model registry for multi-provider support
 const MODELS = {
@@ -214,10 +215,10 @@ export const executeTurn = action({
     gameId: v.id("games"),
     playerId: v.id("players"),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{ success: boolean; iterations: number; activityId: Id<"agentActivity"> }> => {
     // Get game and player state
-    const game = await ctx.runQuery(api.games.get, { id: args.gameId });
-    const player = await ctx.runQuery(api.players.get, { id: args.playerId });
+    const game: Doc<"games"> | null = await ctx.runQuery(api.games.get, { id: args.gameId });
+    const player: Doc<"players"> | null = await ctx.runQuery(api.players.get, { id: args.playerId });
 
     if (!game || !player) {
       throw new Error("Game or player not found");
@@ -242,32 +243,45 @@ export const executeTurn = action({
       throw new Error(`Nation not found: ${player.nation}`);
     }
 
-    // Build the system prompt
-    const systemPrompt = nationData.systemPrompt;
-
-    // Get current game state for context
-    const territories = await ctx.runQuery(api.territories.getByGame, {
+    // ===== START ACTIVITY LOGGING =====
+    const activityId: Id<"agentActivity"> = await ctx.runMutation(api.agentStreaming.startActivity, {
       gameId: args.gameId,
-    });
-    const players = await ctx.runQuery(api.players.getByGame, {
-      gameId: args.gameId,
+      playerId: args.playerId,
+      turn: game.currentTurn,
+      model: player.model ?? "gpt-4o",
+      nation: player.nation,
+      gameDateTimestamp: game.currentDate,
     });
 
-    const myTerritories = territories.filter((t) => t.ownerId === args.playerId);
+    let finalReasoning: string | undefined;
 
-    const gameDate = new Date(game.currentDate);
-    const gameStateContext = `
+    try {
+      // Build the system prompt
+      const systemPrompt = nationData.systemPrompt;
+
+      // Get current game state for context
+      const territories: Doc<"territories">[] = await ctx.runQuery(api.territories.getByGame, {
+        gameId: args.gameId,
+      });
+      const players: Doc<"players">[] = await ctx.runQuery(api.players.getByGame, {
+        gameId: args.gameId,
+      });
+
+      const myTerritories = territories.filter((t: Doc<"territories">) => t.ownerId === args.playerId);
+
+      const gameDate = new Date(game.currentDate);
+      const gameStateContext = `
 Current Game State (Turn ${game.currentTurn}):
 Date: ${gameDate.toLocaleDateString("en-US", { year: "numeric", month: "long" })}
 
 Your Territories (${myTerritories.length}):
-${myTerritories.map((t) => `- ${t.displayName}: ${t.troops} troops (adjacent to: ${t.adjacentTo.join(", ")})`).join("\n")}
+${myTerritories.map((t: Doc<"territories">) => `- ${t.displayName}: ${t.troops} troops (adjacent to: ${t.adjacentTo.join(", ")})`).join("\n")}
 
 Other Powers:
 ${players
-  .filter((p) => p._id !== args.playerId && !p.isEliminated)
-  .map((p) => {
-    const theirTerritories = territories.filter((t) => t.ownerId === p._id);
+  .filter((p: Doc<"players">) => p._id !== args.playerId && !p.isEliminated)
+  .map((p: Doc<"players">) => {
+    const theirTerritories = territories.filter((t: Doc<"territories">) => t.ownerId === p._id);
     return `- ${p.nation}: ${theirTerritories.length} territories`;
   })
   .join("\n")}
@@ -295,195 +309,267 @@ Available Actions:
 Think strategically. Follow Risk rules: reinforce first, then attack, then fortify.
 `;
 
-    // Execute the AI turn with tool calling
-    const messages: Message[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: gameStateContext },
-    ];
+      // Execute the AI turn with tool calling
+      const messages: Message[] = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: gameStateContext },
+      ];
 
-    let turnComplete = false;
-    let iterations = 0;
-    const maxIterations = 10;
+      let turnComplete = false;
+      let iterations = 0;
+      const maxIterations = 10;
 
-    while (!turnComplete && iterations < maxIterations) {
-      iterations++;
+      while (!turnComplete && iterations < maxIterations) {
+        iterations++;
 
-      const response = await callLLM(modelConfig, messages, GAME_TOOLS);
+        const response = await callLLM(modelConfig, messages, GAME_TOOLS);
 
-      if (!response.toolCalls || response.toolCalls.length === 0) {
-        // No tool calls, add assistant message and prompt for action
-        messages.push({
-          role: "assistant",
-          content: response.content ?? "I need to decide on my next action.",
-        });
-        messages.push({
-          role: "user",
-          content:
-            "Please use one of the available tools to take an action or end your turn.",
-        });
-        continue;
-      }
-
-      // Process tool calls
-      for (const toolCall of response.toolCalls) {
-        const toolName = toolCall.function.name;
-        const toolArgs = JSON.parse(toolCall.function.arguments);
-
-        let toolResult: string;
-
-        try {
-          switch (toolName) {
-            case "get_game_state": {
-              const state = await ctx.runQuery(api.games.getFullState, {
-                gameId: args.gameId,
-              });
-              toolResult = JSON.stringify(state, null, 2);
-              break;
-            }
-
-            case "place_reinforcements": {
-              const result = await ctx.runMutation(api.territories.reinforce, {
-                gameId: args.gameId,
-                playerId: args.playerId,
-                territory: toolArgs.territory,
-                troops: toolArgs.troops,
-              });
-              toolResult = JSON.stringify(result);
-              break;
-            }
-
-            case "advance_phase": {
-              const result = await ctx.runMutation(api.games.advancePhase, {
-                gameId: args.gameId,
-                playerId: args.playerId,
-              });
-              toolResult = JSON.stringify(result);
-              break;
-            }
-
-            case "attack_territory": {
-              const result = await ctx.runMutation(api.territories.attack, {
-                gameId: args.gameId,
-                playerId: args.playerId,
-                fromTerritory: toolArgs.from,
-                toTerritory: toolArgs.to,
-                diceCount: toolArgs.dice,
-              });
-              toolResult = JSON.stringify(result);
-              break;
-            }
-
-            case "confirm_conquest": {
-              const result = await ctx.runMutation(api.territories.confirmConquest, {
-                gameId: args.gameId,
-                playerId: args.playerId,
-                troopsToMove: toolArgs.troops,
-              });
-              toolResult = JSON.stringify(result);
-              break;
-            }
-
-            case "fortify": {
-              const result = await ctx.runMutation(api.territories.moveTroops, {
-                gameId: args.gameId,
-                playerId: args.playerId,
-                fromTerritory: toolArgs.from,
-                toTerritory: toolArgs.to,
-                count: toolArgs.count,
-              });
-              toolResult = JSON.stringify(result);
-              break;
-            }
-
-            case "query_history": {
-              const results = await ctx.runAction(api.rag.queryHistory, {
-                gameId: args.gameId,
-                question: toolArgs.question,
-              });
-              toolResult = JSON.stringify(results, null, 2);
-
-              // Log the historical query
-              await ctx.runMutation(api.gameLog.add, {
-                gameId: args.gameId,
-                turn: game.currentTurn,
-                playerId: args.playerId,
-                action: "query",
-                details: { question: toolArgs.question, resultCount: results.length },
-              });
-              break;
-            }
-
-            case "send_negotiation": {
-              // Find recipient player
-              const recipient = players.find(
-                (p) => p.nation === toolArgs.recipient_nation
-              );
-              if (!recipient) {
-                toolResult = `Error: Nation "${toolArgs.recipient_nation}" not found`;
-              } else {
-                await ctx.runMutation(api.negotiations.send, {
-                  gameId: args.gameId,
-                  senderId: args.playerId,
-                  recipientId: recipient._id,
-                  message: toolArgs.message,
-                });
-                toolResult = `Message sent to ${toolArgs.recipient_nation}`;
-              }
-              break;
-            }
-
-            case "end_turn": {
-              // First advance to next turn
-              const nextTurnResult = await ctx.runMutation(api.games.nextTurn, {
-                gameId: args.gameId,
-              });
-
-              // Log the turn end
-              await ctx.runMutation(api.gameLog.add, {
-                gameId: args.gameId,
-                turn: game.currentTurn,
-                playerId: args.playerId,
-                action: "end_turn",
-                details: { reasoning: toolArgs.reasoning },
-              });
-              turnComplete = true;
-              toolResult = JSON.stringify(nextTurnResult);
-              break;
-            }
-
-            default:
-              toolResult = `Unknown tool: ${toolName}`;
-          }
-        } catch (error) {
-          toolResult = `Error: ${error instanceof Error ? error.message : "Unknown error"}`;
+        if (!response.toolCalls || response.toolCalls.length === 0) {
+          // No tool calls, add assistant message and prompt for action
+          messages.push({
+            role: "assistant",
+            content: response.content ?? "I need to decide on my next action.",
+          });
+          messages.push({
+            role: "user",
+            content:
+              "Please use one of the available tools to take an action or end your turn.",
+          });
+          continue;
         }
 
-        // Add tool result to conversation
-        messages.push({
-          role: "assistant",
-          content: null,
-          tool_calls: [toolCall],
-        });
-        messages.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content: toolResult,
+        // Process tool calls
+        for (const toolCall of response.toolCalls) {
+          const toolName = toolCall.function.name;
+          const toolArgs = JSON.parse(toolCall.function.arguments);
+
+          // ===== LOG TOOL CALL START =====
+          await ctx.runMutation(api.agentStreaming.updateCurrentTool, {
+            activityId,
+            toolName,
+          });
+
+          const toolCallId = await ctx.runMutation(
+            api.agentStreaming.logToolCallStart,
+            {
+              activityId,
+              gameId: args.gameId,
+              toolName,
+              arguments: toolArgs,
+            }
+          );
+
+          let toolResult: string;
+          let toolError: string | undefined;
+
+          try {
+            switch (toolName) {
+              case "get_game_state": {
+                const state = await ctx.runQuery(api.games.getFullState, {
+                  gameId: args.gameId,
+                });
+                toolResult = JSON.stringify(state, null, 2);
+                break;
+              }
+
+              case "place_reinforcements": {
+                const result = await ctx.runMutation(api.territories.reinforce, {
+                  gameId: args.gameId,
+                  playerId: args.playerId,
+                  territory: toolArgs.territory,
+                  troops: toolArgs.troops,
+                });
+                toolResult = JSON.stringify(result);
+                break;
+              }
+
+              case "advance_phase": {
+                const result = await ctx.runMutation(api.games.advancePhase, {
+                  gameId: args.gameId,
+                  playerId: args.playerId,
+                });
+                toolResult = JSON.stringify(result);
+                break;
+              }
+
+              case "attack_territory": {
+                const result = await ctx.runMutation(api.territories.attack, {
+                  gameId: args.gameId,
+                  playerId: args.playerId,
+                  fromTerritory: toolArgs.from,
+                  toTerritory: toolArgs.to,
+                  diceCount: toolArgs.dice,
+                });
+                toolResult = JSON.stringify(result);
+                break;
+              }
+
+              case "confirm_conquest": {
+                const result = await ctx.runMutation(
+                  api.territories.confirmConquest,
+                  {
+                    gameId: args.gameId,
+                    playerId: args.playerId,
+                    troopsToMove: toolArgs.troops,
+                  }
+                );
+                toolResult = JSON.stringify(result);
+                break;
+              }
+
+              case "fortify": {
+                const result = await ctx.runMutation(api.territories.moveTroops, {
+                  gameId: args.gameId,
+                  playerId: args.playerId,
+                  fromTerritory: toolArgs.from,
+                  toTerritory: toolArgs.to,
+                  count: toolArgs.count,
+                });
+                toolResult = JSON.stringify(result);
+                break;
+              }
+
+              case "query_history": {
+                // Use enhanced RAG query with blocked events tracking
+                const ragResult = await ctx.runAction(
+                  api.rag.queryHistoryWithBlocked,
+                  {
+                    gameId: args.gameId,
+                    question: toolArgs.question,
+                  }
+                );
+
+                toolResult = JSON.stringify(ragResult.snippets, null, 2);
+
+                // Log RAG query with temporal filtering info
+                await ctx.runMutation(api.agentStreaming.logRagQuery, {
+                  activityId,
+                  toolCallId,
+                  gameId: args.gameId,
+                  question: toolArgs.question,
+                  gameDateTimestamp: game.currentDate,
+                  snippetsReturned: ragResult.snippets.length,
+                  snippetsBlocked: ragResult.blocked.count,
+                  blockedEventsSample: ragResult.blocked.sample,
+                });
+
+                // Log the historical query
+                await ctx.runMutation(api.gameLog.add, {
+                  gameId: args.gameId,
+                  turn: game.currentTurn,
+                  playerId: args.playerId,
+                  action: "query",
+                  details: {
+                    question: toolArgs.question,
+                    resultCount: ragResult.snippets.length,
+                    blockedCount: ragResult.blocked.count,
+                  },
+                });
+                break;
+              }
+
+              case "send_negotiation": {
+                // Find recipient player
+                const recipient = players.find(
+                  (p: Doc<"players">) => p.nation === toolArgs.recipient_nation
+                );
+                if (!recipient) {
+                  toolResult = `Error: Nation "${toolArgs.recipient_nation}" not found`;
+                } else {
+                  await ctx.runMutation(api.negotiations.send, {
+                    gameId: args.gameId,
+                    senderId: args.playerId,
+                    recipientId: recipient._id,
+                    message: toolArgs.message,
+                  });
+                  toolResult = `Message sent to ${toolArgs.recipient_nation}`;
+                }
+                break;
+              }
+
+              case "end_turn": {
+                // First advance to next turn
+                const nextTurnResult = await ctx.runMutation(api.games.nextTurn, {
+                  gameId: args.gameId,
+                });
+
+                // Capture reasoning for activity completion
+                finalReasoning = toolArgs.reasoning;
+
+                // Log the turn end
+                await ctx.runMutation(api.gameLog.add, {
+                  gameId: args.gameId,
+                  turn: game.currentTurn,
+                  playerId: args.playerId,
+                  action: "end_turn",
+                  details: { reasoning: toolArgs.reasoning },
+                });
+                turnComplete = true;
+                toolResult = JSON.stringify(nextTurnResult);
+                break;
+              }
+
+              default:
+                toolResult = `Unknown tool: ${toolName}`;
+            }
+          } catch (error) {
+            toolError =
+              error instanceof Error ? error.message : "Unknown error";
+            toolResult = `Error: ${toolError}`;
+          }
+
+          // ===== LOG TOOL CALL COMPLETE =====
+          await ctx.runMutation(api.agentStreaming.logToolCallComplete, {
+            toolCallId,
+            result: toolResult.length > 1000 ? toolResult.slice(0, 1000) + "..." : toolResult,
+            status: toolError ? "error" : "success",
+            errorMessage: toolError,
+          });
+
+          // Add tool result to conversation
+          messages.push({
+            role: "assistant",
+            content: null,
+            tool_calls: [toolCall],
+          });
+          messages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: toolResult,
+          });
+        }
+      }
+
+      if (!turnComplete) {
+        // Force end turn if max iterations reached
+        finalReasoning = "Max iterations reached";
+        await ctx.runMutation(api.gameLog.add, {
+          gameId: args.gameId,
+          turn: game.currentTurn,
+          playerId: args.playerId,
+          action: "end_turn",
+          details: { reasoning: "Max iterations reached", forced: true },
         });
       }
-    }
 
-    if (!turnComplete) {
-      // Force end turn if max iterations reached
-      await ctx.runMutation(api.gameLog.add, {
-        gameId: args.gameId,
-        turn: game.currentTurn,
-        playerId: args.playerId,
-        action: "end_turn",
-        details: { reasoning: "Max iterations reached", forced: true },
+      // ===== COMPLETE ACTIVITY =====
+      await ctx.runMutation(api.agentStreaming.completeActivity, {
+        activityId,
+        reasoning: finalReasoning,
+        status: "completed",
       });
-    }
 
-    return { success: true, iterations };
+      return { success: true, iterations, activityId };
+    } catch (error) {
+      // ===== HANDLE ERROR =====
+      await ctx.runMutation(api.agentStreaming.completeActivity, {
+        activityId,
+        reasoning:
+          error instanceof Error ? error.message : "Unknown error occurred",
+        status: "error",
+      });
+      throw error;
+    }
   },
 });
 

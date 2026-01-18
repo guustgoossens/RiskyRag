@@ -76,6 +76,105 @@ export const queryHistory = action({
   },
 });
 
+// Enhanced query that tracks blocked events for observability
+export const queryHistoryWithBlocked = action({
+  args: {
+    question: v.string(),
+    gameId: v.id("games"),
+    topK: v.optional(v.number()),
+    region: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    snippets: Array<{
+      content: string;
+      title: string | null;
+      date: string;
+      source: string;
+      relevanceScore: number;
+    }>;
+    blocked: {
+      count: number;
+      sample: Array<{ title?: string; eventDate: number }>;
+    };
+  }> => {
+    // Get the current game state to determine the knowledge cutoff
+    const game = await ctx.runQuery(api.games.get, { id: args.gameId });
+    if (!game) {
+      throw new Error("Game not found");
+    }
+
+    const maxDate = game.currentDate;
+    const topK = args.topK ?? 5;
+
+    // Generate embedding for the question
+    const embedding = await generateEmbedding(args.question);
+
+    // Vector search - fetch extra to account for filtering
+    const searchResults = await ctx.vectorSearch(
+      "historicalSnippets",
+      "by_embedding",
+      {
+        vector: embedding,
+        limit: topK * 3,
+      }
+    );
+
+    // Fetch full documents
+    const allSnippets = await Promise.all(
+      searchResults.map(async (r) => {
+        const doc = await ctx.runQuery(api.rag.getSnippet, { id: r._id });
+        return {
+          doc,
+          score: r._score,
+        };
+      })
+    );
+
+    // Separate into allowed and blocked
+    const allowed: typeof allSnippets = [];
+    const blocked: Array<{ title?: string; eventDate: number }> = [];
+
+    for (const s of allSnippets) {
+      if (!s.doc) continue;
+
+      // Check region filter
+      if (args.region && s.doc.region !== args.region) continue;
+
+      // CRITICAL: Temporal filter
+      if (s.doc.eventDate > maxDate) {
+        // This event is in the "future" - blocked
+        blocked.push({
+          title: s.doc.title ?? undefined,
+          eventDate: s.doc.eventDate,
+        });
+      } else {
+        allowed.push(s);
+      }
+    }
+
+    // Get top K allowed snippets
+    const filteredSnippets = allowed.slice(0, topK).map((s) => ({
+      content: s.doc?.content ?? "",
+      title: s.doc?.title ?? null,
+      date: new Date(s.doc?.eventDate ?? 0).toISOString(),
+      source: s.doc?.source ?? "unknown",
+      relevanceScore: s.score,
+    }));
+
+    return {
+      snippets: filteredSnippets,
+      blocked: {
+        count: blocked.length,
+        // Return sample of blocked events (up to 5)
+        sample: blocked.slice(0, 5),
+      },
+    };
+  },
+});
+
 // Get a single snippet by ID
 export const getSnippet = query({
   args: { id: v.id("historicalSnippets") },

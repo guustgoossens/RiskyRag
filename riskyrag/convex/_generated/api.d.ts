@@ -9,6 +9,7 @@
  */
 
 import type * as agent from "../agent.js";
+import type * as agentStreaming from "../agentStreaming.js";
 import type * as benchmarks from "../benchmarks.js";
 import type * as gameLog from "../gameLog.js";
 import type * as games from "../games.js";
@@ -27,6 +28,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   agent: typeof agent;
+  agentStreaming: typeof agentStreaming;
   benchmarks: typeof benchmarks;
   gameLog: typeof gameLog;
   games: typeof games;

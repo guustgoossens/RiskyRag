@@ -19,7 +19,12 @@ export default defineSchema({
     createdAt: v.number(),
     // Turn phase tracking (Risk rules)
     phase: v.optional(
-      v.union(v.literal("reinforce"), v.literal("attack"), v.literal("fortify"))
+      v.union(
+        v.literal("setup"), // Initial troop placement
+        v.literal("reinforce"),
+        v.literal("attack"),
+        v.literal("fortify")
+      )
     ),
     reinforcementsRemaining: v.optional(v.number()), // Troops left to place
     fortifyUsed: v.optional(v.boolean()), // Has player used their one fortify move?
@@ -47,6 +52,7 @@ export default defineSchema({
     color: v.string(), // Hex color for map
     isEliminated: v.boolean(),
     joinedAt: v.number(),
+    setupTroopsRemaining: v.optional(v.number()), // Troops left to place during setup phase
   })
     .index("by_game", ["gameId"])
     .index("by_user", ["oderId"]),
@@ -141,4 +147,69 @@ export default defineSchema({
   })
     .index("by_game", ["gameId"])
     .index("by_game_turn", ["gameId", "turn"]),
+
+  // Agent observability - activity tracking
+  agentActivity: defineTable({
+    gameId: v.id("games"),
+    playerId: v.id("players"),
+    turn: v.number(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("error")
+    ),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    currentTool: v.optional(v.string()),
+    currentToolDescription: v.optional(v.string()),
+    reasoning: v.optional(v.string()),
+    model: v.optional(v.string()),
+    nation: v.optional(v.string()),
+    gameDateTimestamp: v.optional(v.number()),
+  })
+    .index("by_game_turn", ["gameId", "turn"])
+    .index("by_game_player", ["gameId", "playerId"])
+    .index("by_game_status", ["gameId", "status"]),
+
+  // Agent tool calls log
+  agentToolCalls: defineTable({
+    activityId: v.id("agentActivity"),
+    gameId: v.id("games"),
+    toolName: v.string(),
+    arguments: v.any(),
+    result: v.optional(v.any()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("success"),
+      v.literal("error")
+    ),
+    errorMessage: v.optional(v.string()),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    durationMs: v.optional(v.number()),
+  })
+    .index("by_activity", ["activityId"])
+    .index("by_game", ["gameId"]),
+
+  // Agent RAG queries with temporal filtering info
+  agentRagQueries: defineTable({
+    activityId: v.id("agentActivity"),
+    toolCallId: v.id("agentToolCalls"),
+    gameId: v.id("games"),
+    question: v.string(),
+    gameDateTimestamp: v.number(),
+    snippetsReturned: v.number(),
+    snippetsBlocked: v.number(),
+    blockedEventsSample: v.optional(
+      v.array(
+        v.object({
+          title: v.optional(v.string()),
+          eventDate: v.number(),
+        })
+      )
+    ),
+  })
+    .index("by_activity", ["activityId"])
+    .index("by_tool_call", ["toolCallId"]),
 });
