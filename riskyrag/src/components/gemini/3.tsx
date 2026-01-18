@@ -15,7 +15,7 @@ import {
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id, Doc } from "../../../convex/_generated/dataModel";
-import { GraphMap } from "../map/GraphMap";
+import { OpenLayersMap } from "../map/OpenLayersMap";
 import { AgentTurnViewer, AgentViewerButton } from "@/components/agent";
 import { useAgentStream } from "@/hooks/useAgentStream";
 
@@ -81,124 +81,6 @@ const Button = ({
     </button>
   );
 };
-
-// --- Game Map Component ---
-function GameMap({
-  territories,
-  players,
-  onTerritoryClick,
-  selectedTerritory,
-  attackSource,
-}: {
-  territories: Doc<"territories">[];
-  players: Doc<"players">[];
-  onTerritoryClick: (id: Id<"territories">) => void;
-  selectedTerritory: Id<"territories"> | null;
-  attackSource: Id<"territories"> | null;
-}) {
-  const width = 100;
-  const height = 100;
-
-  // Create a lookup for player colors
-  const playerColors = new Map<Id<"players">, keyof typeof COLORS>();
-  for (const player of players) {
-    const colorKey = NATION_COLORS[player.nation] || "neutral";
-    playerColors.set(player._id, colorKey);
-  }
-
-  // Create adjacency lookup by territory name
-  const territoryByName = new Map<string, Doc<"territories">>();
-  for (const t of territories) {
-    territoryByName.set(t.name, t);
-  }
-
-  return (
-    <div className="relative w-full aspect-square max-w-2xl mx-auto p-4 select-none">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full drop-shadow-2xl">
-        {/* Connections */}
-        {territories.map((t) =>
-          t.adjacentTo.map((neighborName) => {
-            const neighbor = territoryByName.get(neighborName);
-            if (!neighbor) return null;
-            // Draw line only once (alphabetically)
-            if (t.name > neighborName) return null;
-            return (
-              <line
-                key={`${t._id}-${neighbor._id}`}
-                x1={t.position.x / 10}
-                y1={t.position.y / 10}
-                x2={neighbor.position.x / 10}
-                y2={neighbor.position.y / 10}
-                stroke="#334155"
-                strokeWidth="1"
-              />
-            );
-          })
-        )}
-
-        {/* Territory Nodes */}
-        {territories.map((t) => {
-          const colorKey = t.ownerId ? playerColors.get(t.ownerId) || "neutral" : "neutral";
-          const colors = COLORS[colorKey];
-          const isSelected = selectedTerritory === t._id;
-          const isSource = attackSource === t._id;
-
-          let ringColor = "stroke-slate-600";
-          if (isSource) ringColor = "stroke-yellow-400";
-          else if (isSelected) ringColor = "stroke-white";
-
-          // Scale positions (they're stored as 0-800, we want 0-100)
-          const x = t.position.x / 10;
-          const y = t.position.y / 10;
-
-          return (
-            <g
-              key={t._id}
-              onClick={() => onTerritoryClick(t._id)}
-              className="cursor-pointer transition-all duration-300 hover:opacity-90"
-            >
-              <circle
-                cx={x}
-                cy={y}
-                r="8"
-                className={`${colors.bg} ${ringColor} transition-colors duration-300`}
-                strokeWidth={isSelected || isSource ? "1.5" : "0.5"}
-              />
-              {/* Unit Count Badge */}
-              <circle cx={x + 5} cy={y - 5} r="3" className="fill-slate-950 stroke-slate-600" strokeWidth="0.5" />
-              <text x={x + 5} y={y - 4} className="text-[3px] fill-white font-bold" textAnchor="middle">
-                {t.troops}
-              </text>
-
-              {/* Territory Name */}
-              <text
-                x={x}
-                y={y + 12}
-                className={`text-[3px] font-semibold uppercase tracking-wider ${isSelected ? "fill-white" : "fill-slate-400"}`}
-                textAnchor="middle"
-              >
-                {t.displayName}
-              </text>
-
-              {/* Icon in center */}
-              <foreignObject x={x - 3} y={y - 3} width="6" height="6">
-                <div className={`flex items-center justify-center w-full h-full ${colors.text}`}>
-                  {t.ownerId ? (
-                    players.find((p) => p._id === t.ownerId)?.isHuman ? (
-                      <User size={4} />
-                    ) : (
-                      <Cpu size={4} />
-                    )
-                  ) : null}
-                </div>
-              </foreignObject>
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
-}
 
 // --- Player List Component ---
 function PlayerList({
@@ -763,24 +645,14 @@ export default function RiskyRagGame() {
           />
 
           <div className="flex-1 flex items-center justify-center p-8">
-            {game.scenario === "1861" ? (
-              <GraphMap
-                territories={territories}
-                players={players}
-                onTerritoryClick={handleTerritoryClick}
-                selectedTerritory={selectedTerritory}
-                attackSource={attackSource}
-                scenario={game.scenario}
-              />
-            ) : (
-              <GameMap
-                territories={territories}
-                players={players}
-                onTerritoryClick={handleTerritoryClick}
-                selectedTerritory={selectedTerritory}
-                attackSource={attackSource}
-              />
-            )}
+            <OpenLayersMap
+              territories={territories}
+              players={players}
+              onTerritoryClick={handleTerritoryClick}
+              selectedTerritory={selectedTerritory}
+              attackSource={attackSource}
+              scenario={game.scenario}
+            />
           </div>
 
           {/* Bottom Log */}

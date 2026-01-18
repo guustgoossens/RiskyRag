@@ -350,3 +350,24 @@ code, pre, .font-mono {
   animation: territory-pulse 1s ease-in-out infinite;
   transform-origin: center;
 }
+
+/* ============================================
+   OPENLAYERS MAP STYLES
+   ============================================ */
+
+/* Ensure OpenLayers viewport fills container */
+.ol-viewport {
+  border-radius: 0.75rem;
+}
+
+/* Hide default OpenLayers controls we don't need */
+.ol-zoom,
+.ol-rotate,
+.ol-attribution {
+  display: none !important;
+}
+
+/* Make sure the map container has proper sizing */
+.ol-layer canvas {
+  border-radius: 0.75rem;
+}
