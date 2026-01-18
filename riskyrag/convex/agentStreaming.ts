@@ -114,7 +114,7 @@ export const logToolCallComplete = mutation({
 });
 
 /**
- * Log a RAG query with temporal filtering info
+ * Log a RAG query with temporal filtering info and actual snippets
  */
 export const logRagQuery = mutation({
   args: {
@@ -133,6 +133,18 @@ export const logRagQuery = mutation({
         })
       )
     ),
+    // Store actual snippets with their citations
+    snippets: v.optional(
+      v.array(
+        v.object({
+          title: v.optional(v.string()),
+          content: v.string(),
+          source: v.string(),
+          sourceUrl: v.optional(v.string()),
+          date: v.string(),
+        })
+      )
+    ),
   },
   handler: async (ctx, args) => {
     const ragQueryId = await ctx.db.insert("agentRagQueries", {
@@ -144,6 +156,7 @@ export const logRagQuery = mutation({
       snippetsReturned: args.snippetsReturned,
       snippetsBlocked: args.snippetsBlocked,
       blockedEventsSample: args.blockedEventsSample,
+      snippets: args.snippets,
     });
     return ragQueryId;
   },

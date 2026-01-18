@@ -225,7 +225,22 @@ const TOOL_VALIDATORS: Record<
 
   query_history: () => ({ valid: true }), // Always allowed
 
+  trade_cards: (ctx) => {
+    if (ctx.phase !== "reinforce") {
+      return {
+        valid: false,
+        error: `Cannot trade cards during ${ctx.phase.toUpperCase()} phase.`,
+        hint: "Card trading only allowed during REINFORCE phase.",
+      };
+    }
+    return { valid: true };
+  },
+
   send_negotiation: () => ({ valid: true }), // Always allowed
+
+  respond_to_negotiation: () => ({ valid: true }), // Always allowed
+
+  take_note: () => ({ valid: true }), // Always allowed
 
   done: (ctx) => {
     if (ctx.phase !== "attack" && ctx.phase !== "fortify") {
@@ -406,12 +421,12 @@ const GAME_TOOLS = [
     function: {
       name: "fortify",
       description:
-        "Move troops between your own adjacent territories. Only available during FORTIFY phase. You get ONE fortify move per turn.",
+        "Move troops between your territories through any connected path of territories you own. Does NOT require direct adjacency - you can move through chains (e.g., A→B→C if you own all three). Only available during FORTIFY phase. You get ONE fortify move per turn.",
       parameters: {
         type: "object",
         properties: {
           from: { type: "string", description: "Source territory name" },
-          to: { type: "string", description: "Destination territory name" },
+          to: { type: "string", description: "Destination territory name (must be reachable through your territories)" },
           count: { type: "number", description: "Number of troops to move (must leave at least 1)" },
         },
         required: ["from", "to", "count"],
@@ -439,6 +454,25 @@ const GAME_TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "trade_cards",
+      description:
+        "Trade 3 Risk cards for bonus reinforcement troops. Valid sets: 3 of the same type (infantry/cavalry/artillery) OR 1 of each type. Bonus increases with each trade (4→6→8→10→12→15→20). Only available during REINFORCE phase. You MUST trade if holding 5+ cards.",
+      parameters: {
+        type: "object",
+        properties: {
+          cardIndices: {
+            type: "array",
+            items: { type: "number" },
+            description: "Array of exactly 3 card indices to trade (0-indexed from your card list)",
+          },
+        },
+        required: ["cardIndices"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "send_negotiation",
       description: "Send a diplomatic message to another nation",
       parameters: {
@@ -454,6 +488,49 @@ const GAME_TOOLS = [
           },
         },
         required: ["recipient_nation", "message"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "respond_to_negotiation",
+      description: "Respond to a diplomatic message you received. You can accept, reject, or counter the proposal.",
+      parameters: {
+        type: "object",
+        properties: {
+          sender_nation: {
+            type: "string",
+            description: "The nation that sent you the message",
+          },
+          response: {
+            type: "string",
+            enum: ["accept", "reject", "counter"],
+            description: "Your response: accept the proposal, reject it, or counter with a new proposal",
+          },
+          message: {
+            type: "string",
+            description: "Your response message (required for counter, optional for accept/reject)",
+          },
+        },
+        required: ["sender_nation", "response"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "take_note",
+      description: "Record a private strategic note. These notes are not visible to other players but help you plan across turns. Use this to track long-term strategies, observations about enemy behavior, or reminders for future turns.",
+      parameters: {
+        type: "object",
+        properties: {
+          content: {
+            type: "string",
+            description: "Your strategic note. Be specific about plans, threats, or observations.",
+          },
+        },
+        required: ["content"],
       },
     },
   },
@@ -620,6 +697,10 @@ ${myTerritories.map((t: Doc<"territories">) => `- ${t.name}: ${t.troops} troops 
 
 IMPORTANT: Use the exact territory names shown above (e.g., "constantinople", "thrace") in tool calls. These are case-sensitive identifiers.
 
+NOTE on Movement:
+- ATTACK: Must be to adjacent enemy territories only
+- FORTIFY: Can move through ANY chain of connected territories you own (e.g., if you own A, B, C in a chain, you can move directly from A to C)
+
 Enemy Territories (you can attack these):
 ${players
   .filter((p: Doc<"players">) => p._id !== args.playerId && !p.isEliminated)
@@ -635,6 +716,13 @@ ${game.reinforcementsRemaining ? `Reinforcements to place: ${game.reinforcements
 ${game.pendingConquest ? `PENDING CONQUEST: You must move ${game.pendingConquest.minTroops}-${game.pendingConquest.maxTroops} troops to ${game.pendingConquest.toTerritory}` : ""}
 ${game.fortifyUsed ? "Fortify move already used this turn" : ""}
 
+RISK CARDS:
+Your Cards: ${(player.cards ?? []).map((c: string, i: number) => `${i}: ${c}`).join(", ") || "None"}
+Cards can be traded for bonus troops: 3 of same type OR 1 of each type (infantry/cavalry/artillery).
+Next trade bonus: ${(() => { const bonuses = [4, 6, 8, 10, 12, 15, 20]; return bonuses[Math.min(game.cardTradeCount ?? 0, bonuses.length - 1)]; })()} troops
+${(player.cards?.length ?? 0) >= 5 ? "⚠️ You have 5+ cards - MUST trade before placing reinforcements!" : ""}
+${(player.cards?.length ?? 0) >= 3 && game.phase === "reinforce" ? "💡 You can trade cards during REINFORCE phase using trade_cards tool." : ""}
+
 ${game.phase === "setup" ? `SETUP PHASE (Turn 0):
 You are placing your initial army. Distribute your ${player.setupTroopsRemaining ?? 0} remaining troops across your territories strategically.
 1. Use place_reinforcements to add troops to your territories
@@ -649,14 +737,15 @@ Available Actions (SETUP):
 ` : `Turn Phases (in order):
 1. REINFORCE: Place all reinforcement troops on your territories
 2. ATTACK: Attack enemy territories (optional, can attack multiple times)
-3. FORTIFY: Move troops between your territories (ONE move only, optional)
+3. FORTIFY: Move troops through connected territories you own (ONE move only, optional)
 
 Available Actions:
 - place_reinforcements: Place troops on your territory (REINFORCE phase)
+- trade_cards: Trade 3 cards for bonus troops (REINFORCE phase only, 3 same OR 1 each)
 - advance_phase: Move to the next phase
 - attack_territory: Attack with 1-3 dice (ATTACK phase only, need dice+1 troops)
 - confirm_conquest: After conquering, choose how many troops to move in
-- fortify: Move troops between your territories (FORTIFY phase, ONE move per turn)
+- fortify: Move troops through any chain of connected territories you own (FORTIFY phase, ONE move per turn, does NOT require direct adjacency)
 - query_history: Ask about historical events (you only know events up to ${gameDate.getFullYear()})
 - send_negotiation: Send a diplomatic message to another nation
 - done: Validate your strategy (ATTACK/FORTIFY phase only, REQUIRED before end_turn)
@@ -888,7 +977,7 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
 
                 toolResult = JSON.stringify(ragResult.snippets, null, 2);
 
-                // Log RAG query with temporal filtering info
+                // Log RAG query with temporal filtering info and snippets for citations
                 await ctx.runMutation(api.agentStreaming.logRagQuery, {
                   activityId,
                   toolCallId,
@@ -898,6 +987,13 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
                   snippetsReturned: ragResult.snippets.length,
                   snippetsBlocked: ragResult.blocked.count,
                   blockedEventsSample: ragResult.blocked.sample,
+                  snippets: ragResult.snippets.map((s) => ({
+                    title: s.title ?? undefined,
+                    content: s.content,
+                    source: s.source,
+                    sourceUrl: s.sourceUrl ?? undefined,
+                    date: s.date,
+                  })),
                 });
 
                 // Log the historical query
@@ -912,6 +1008,16 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
                     blockedCount: ragResult.blocked.count,
                   },
                 });
+                break;
+              }
+
+              case "trade_cards": {
+                const result = await ctx.runMutation(api.territories.tradeCards, {
+                  gameId: args.gameId,
+                  playerId: args.playerId,
+                  cardIndices: toolArgs.cardIndices,
+                });
+                toolResult = JSON.stringify(result);
                 break;
               }
 
@@ -931,6 +1037,60 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
                   });
                   toolResult = `Message sent to ${toolArgs.recipient_nation}`;
                 }
+                break;
+              }
+
+              case "respond_to_negotiation": {
+                // Find the sender player
+                const senderPlayer = players.find(
+                  (p: Doc<"players">) => p.nation === toolArgs.sender_nation
+                );
+                if (!senderPlayer) {
+                  toolResult = `Error: Nation "${toolArgs.sender_nation}" not found`;
+                } else {
+                  // Find the pending negotiation from this sender
+                  const pendingNegotiations = await ctx.runQuery(
+                    api.negotiations.getPendingForPlayer,
+                    {
+                      gameId: args.gameId,
+                      playerId: args.playerId,
+                    }
+                  );
+
+                  const negotiation = pendingNegotiations.find(
+                    (n) => n.senderId === senderPlayer._id
+                  );
+
+                  if (!negotiation) {
+                    toolResult = `Error: No pending negotiation from ${toolArgs.sender_nation}`;
+                  } else {
+                    const statusMap: Record<string, "accepted" | "rejected" | "countered"> = {
+                      accept: "accepted",
+                      reject: "rejected",
+                      counter: "countered",
+                    };
+
+                    await ctx.runMutation(api.negotiations.respond, {
+                      negotiationId: negotiation._id,
+                      playerId: args.playerId,
+                      status: statusMap[toolArgs.response],
+                      responseMessage: toolArgs.message,
+                    });
+
+                    toolResult = `Response sent to ${toolArgs.sender_nation}: ${toolArgs.response}`;
+                  }
+                }
+                break;
+              }
+
+              case "take_note": {
+                await ctx.runMutation(api.agentNotes.add, {
+                  gameId: args.gameId,
+                  playerId: args.playerId,
+                  turn: game.currentTurn,
+                  content: toolArgs.content,
+                });
+                toolResult = "Strategic note recorded.";
                 break;
               }
 
