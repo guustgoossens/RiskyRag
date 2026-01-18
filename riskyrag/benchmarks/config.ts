@@ -6,7 +6,7 @@
 export type ModelConfig = {
   id: string;
   name: string;
-  provider: "openai" | "anthropic" | "local";
+  provider: "openai" | "anthropic" | "local" | "openrouter";
   apiModel: string; // e.g., "gpt-4o", "claude-3-5-sonnet-20241022"
   description?: string;
   color?: string; // Hex color for visualization
@@ -79,6 +79,16 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     apiModel: "claude-3-5-haiku-20241022",
     description: "Fast and efficient Claude",
     color: "#e89b7f",
+  },
+
+  // OpenRouter Models (Free Tier)
+  {
+    id: "devstral",
+    name: "Devstral",
+    provider: "openrouter",
+    apiModel: "mistralai/devstral-2512:free",
+    description: "Mistral's dev-focused model (free via OpenRouter)",
+    color: "#ff7000",
   },
 
   // Local Models (vLLM)

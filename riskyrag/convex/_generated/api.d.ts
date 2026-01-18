@@ -22,6 +22,7 @@ import type * as scenarios from "../scenarios.js";
 import type * as seed from "../seed.js";
 import type * as territories from "../territories.js";
 import type * as tournament from "../tournament.js";
+import type * as tournamentInit from "../tournamentInit.js";
 
 import type {
   ApiFromModules,
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   seed: typeof seed;
   territories: typeof territories;
   tournament: typeof tournament;
+  tournamentInit: typeof tournamentInit;
 }>;
 
 /**

@@ -332,23 +332,20 @@ export const getTournamentStats = query({
 // ==================== ACTIONS ====================
 
 /**
- * Create and start a tournament game (combines creation + initialization)
- *
- * NOTE: This currently requires manual territory initialization through the UI
- * or seed scripts. For full automation, implement territory initialization.
+ * Create and start a tournament game (fully automated)
+ * Creates game, players, initializes territories, and starts AI execution
  */
 export const createAndStartTournamentGame = action({
   args: {
     scenario: v.string(),
     models: v.array(v.string()),
   },
-  handler: async (ctx, args): Promise<{
-    gameId: any;
-    playerIds: any;
-    warning: string;
-  }> => {
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ gameId: Id<"games">; playerIds: Id<"players">[] }> => {
     // Create the game
-    const { gameId, playerIds }: { gameId: any; playerIds: any } = await ctx.runMutation(
+    const { gameId, playerIds } = await ctx.runMutation(
       api.tournament.createAIGame,
       {
         scenario: args.scenario,
@@ -357,23 +354,16 @@ export const createAndStartTournamentGame = action({
       }
     );
 
-    // TODO: Initialize map and territories programmatically
-    // For now, territories need to be created separately via:
-    // 1. UI territory initialization
-    // 2. Seed scripts
-    // 3. Custom initialization mutation (to be implemented)
-    //
-    // Required: Create territories from SCENARIOS[scenario].territories
-    // and assign them to players according to scenario.initialOwnership
-
-    // Start the game (will fail if territories don't exist)
-    // await ctx.runMutation(api.tournament.startAIGame, { gameId });
-
-    return {
+    // Initialize territories
+    await ctx.runMutation(internal.tournamentInit.initializeTerritories, {
       gameId,
-      playerIds,
-      warning: "Game created but not started - territories need manual initialization",
-    };
+      scenario: args.scenario,
+    });
+
+    // Start the game
+    await ctx.runMutation(api.tournament.startAIGame, { gameId });
+
+    return { gameId, playerIds };
   },
 });
 

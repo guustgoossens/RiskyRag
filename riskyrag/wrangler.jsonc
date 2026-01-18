@@ -1,7 +1,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "tanstack-start-app",
+  "name": "riskyrag",
   "compatibility_date": "2025-09-02",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "@tanstack/react-start/server-entry"
+  "main": "@tanstack/react-start/server-entry",
+  "vars": {
+    "VITE_CONVEX_URL": "https://cheerful-robin-630.convex.cloud",
+    "VITE_WORKOS_CLIENT_ID": "client_01K6G79G2X6ATHHGMF9A4VS5EM",
+    "VITE_WORKOS_API_HOSTNAME": "api.workos.com",
+    "CONVEX_DEPLOYMENT": "dev:cheerful-robin-630",
+    "OPENROUTER_REFERER": "https://riskyrag.dev"
+  }
 }

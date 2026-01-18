@@ -4,15 +4,15 @@
   "type": "module",
   "scripts": {
     "dev": "NODE_OPTIONS='--import ./instrument.server.mjs' vite dev --port 3000",
-    "build": "vite build && cp instrument.server.mjs .output/server",
+    "build": "vite build && cp instrument.server.mjs dist/server",
     "build:vercel": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "format": "biome format",
     "lint": "biome lint",
     "check": "biome check",
-    "deploy": "npm run build && wrangler deploy",
-    "start": "node --import ./.output/server/instrument.server.mjs .output/server/index.mjs",
+    "deploy": "bun run build && bunx wrangler deploy",
+    "start": "node --import ./dist/server/instrument.server.mjs dist/server/index.mjs",
     "tournament": "bun benchmarks/runner.ts",
     "tournament:quick": "bun benchmarks/runner.ts quick",
     "tournament:list": "bun benchmarks/runner.ts list"
