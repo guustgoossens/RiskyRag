@@ -4,70 +4,81 @@ import { api } from "./_generated/api";
 import { SCENARIOS, type ScenarioId } from "./scenarios";
 import type { Doc, Id } from "./_generated/dataModel";
 
-// Model registry - OpenRouter models with CONFIRMED tool_choice support
-// IMPORTANT: Many free models support "tools" but NOT "tool_choice" parameter
-// Only models confirmed to work with agentic tool calling are listed here
-// See: https://github.com/block/goose/issues/3054
+// Model registry - models with CONFIRMED tool_choice support
+// IMPORTANT: Only Devstral and Claude models are confirmed stable
 const MODELS = {
-  // === CONFIRMED WORKING FREE MODELS (support both tools AND tool_choice) ===
+  // === STABLE (Recommended - reliable tool calling) ===
   "devstral": {
-    provider: "openrouter",
+    provider: "openrouter" as const,
     model: "mistralai/devstral-2512:free",
     apiKeyEnv: "OPENROUTER_API_KEY",
     supportsTools: true,
-    description: "Mistral's dev-focused model, confirmed tool_choice support",
+    description: "Best free model. Excellent tool use.",
   },
-  "trinity-mini": {
-    provider: "openrouter",
-    model: "arcee-ai/trinity-mini:free",
-    apiKeyEnv: "OPENROUTER_API_KEY",
+  "claude-sonnet": {
+    provider: "anthropic" as const,
+    model: "claude-sonnet-4-20250514",
+    apiKeyEnv: "ANTHROPIC_API_KEY",
     supportsTools: true,
-    description: "Arcee's 26B MoE (3B active), confirmed tool_choice support",
+    description: "Best overall. Superior reasoning & strategy.",
   },
-  "tng-r1t-chimera": {
-    provider: "openrouter",
-    model: "tngtech/tng-r1t-chimera:free",
-    apiKeyEnv: "OPENROUTER_API_KEY",
+  "claude-opus": {
+    provider: "anthropic" as const,
+    model: "claude-opus-4-20250514",
+    apiKeyEnv: "ANTHROPIC_API_KEY",
     supportsTools: true,
-    description: "TNG's R1T Chimera, confirmed tool_choice support",
-  },
-  "qwen3-coder": {
-    provider: "openrouter",
-    model: "qwen/qwen3-coder:free",
-    apiKeyEnv: "OPENROUTER_API_KEY",
-    supportsTools: true,
-    description: "Qwen3 Coder, confirmed tool_choice support",
+    description: "Most capable. Deep analysis & planning.",
   },
 
-  // === PAID MODELS (reliable tool calling, low cost) ===
-  // Use these if free models are rate-limited or unavailable
+  // === EXPERIMENTAL (May fail or produce errors) ===
+  "claude-haiku": {
+    provider: "anthropic" as const,
+    model: "claude-haiku-4-20250514",
+    apiKeyEnv: "ANTHROPIC_API_KEY",
+    supportsTools: true,
+    description: "Fast but less reliable for tool use.",
+  },
   "llama-3.3-70b": {
-    provider: "openrouter",
+    provider: "openrouter" as const,
     model: "meta-llama/llama-3.3-70b-instruct",
     apiKeyEnv: "OPENROUTER_API_KEY",
     supportsTools: true,
-    description: "Meta Llama 3.3 70B, ~$0.10/M tokens, excellent tool use",
+    description: "Meta Llama 3.3 70B. Tool use can fail.",
   },
   "qwen3-32b": {
-    provider: "openrouter",
+    provider: "openrouter" as const,
     model: "qwen/qwen-3-32b",
     apiKeyEnv: "OPENROUTER_API_KEY",
     supportsTools: true,
-    description: "Qwen3 32B, ~$0.08/M tokens, strong reasoning",
-  },
-  "gemma-3-27b": {
-    provider: "openrouter",
-    model: "google/gemma-3-27b-it",
-    apiKeyEnv: "OPENROUTER_API_KEY",
-    supportsTools: true,
-    description: "Google Gemma 3 27B, ~$0.10/M tokens, 128K context",
+    description: "Qwen3 32B. Inconsistent tool use.",
   },
   "mistral-small": {
-    provider: "openrouter",
+    provider: "openrouter" as const,
     model: "mistralai/mistral-small-3.1-24b-instruct",
     apiKeyEnv: "OPENROUTER_API_KEY",
     supportsTools: true,
-    description: "Mistral Small 24B, ~$0.10/M tokens, fast + reliable",
+    description: "Mistral Small 24B. Error-prone.",
+  },
+  "trinity-mini": {
+    provider: "openrouter" as const,
+    model: "arcee-ai/trinity-mini:free",
+    apiKeyEnv: "OPENROUTER_API_KEY",
+    supportsTools: true,
+    description: "Arcee's 26B MoE. Often fails.",
+  },
+  "qwen3-coder": {
+    provider: "openrouter" as const,
+    model: "qwen/qwen3-coder:free",
+    apiKeyEnv: "OPENROUTER_API_KEY",
+    supportsTools: true,
+    description: "Qwen3 Coder. Very inconsistent.",
+  },
+  "gemma-3-27b": {
+    provider: "openrouter" as const,
+    model: "google/gemma-3-27b-it",
+    apiKeyEnv: "OPENROUTER_API_KEY",
+    supportsTools: true,
+    description: "Google Gemma 3 27B. Frequently fails.",
   },
 } as const;
 
@@ -1368,12 +1379,15 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
 });
 
 // Fallback model order - try these in sequence if the primary model fails
+// Only stable models first, then experimental as last resort
 const FALLBACK_MODEL_ORDER: ModelKey[] = [
-  "devstral",      // Usually most reliable free model
-  "qwen3-coder",   // Good alternative
-  "tng-r1t-chimera",
-  "trinity-mini",
-  "mistral-small", // Paid fallback - very reliable
+  "devstral",       // Best free model (stable)
+  "claude-sonnet",  // Best overall (stable)
+  "claude-opus",    // Most capable (stable)
+  // Experimental fallbacks only if stable ones fail
+  "claude-haiku",   // Fast but less reliable
+  "llama-3.3-70b",  // Can work sometimes
+  "mistral-small",  // Error-prone but possible
 ];
 
 // Helper to call LLM with tool support via OpenRouter
@@ -1472,11 +1486,161 @@ async function callLLMSingle(
     function: { name: string; arguments: string };
   }> | null;
 }> {
-  if (config.provider !== "openrouter") {
-    throw new Error(`Unknown provider: ${config.provider}`);
+  if (config.provider === "anthropic") {
+    return callAnthropicLLM(config, messages, tools, apiKey);
+  }
+  // Default to OpenRouter for all other providers
+  return callOpenRouterLLM(config, messages, tools, apiKey);
+}
+
+// Call Anthropic API (Claude models)
+async function callAnthropicLLM(
+  config: (typeof MODELS)[ModelKey],
+  messages: Array<{
+    role: "system" | "user" | "assistant" | "tool";
+    content: string | null;
+    tool_calls?: any[];
+    tool_call_id?: string;
+  }>,
+  tools: typeof GAME_TOOLS,
+  apiKey: string
+): Promise<{
+  content: string | null;
+  toolCalls: Array<{
+    id: string;
+    function: { name: string; arguments: string };
+  }> | null;
+}> {
+  // Convert OpenAI format to Anthropic format
+  // Extract system message
+  const systemMessage = messages.find((m) => m.role === "system");
+  const nonSystemMessages = messages.filter((m) => m.role !== "system");
+
+  // Convert messages to Anthropic format
+  const anthropicMessages: Array<{
+    role: "user" | "assistant";
+    content: string | Array<{ type: string; tool_use_id?: string; content?: string; id?: string; name?: string; input?: unknown }>;
+  }> = [];
+
+  for (const msg of nonSystemMessages) {
+    if (msg.role === "user") {
+      anthropicMessages.push({
+        role: "user",
+        content: msg.content ?? "",
+      });
+    } else if (msg.role === "assistant") {
+      if (msg.tool_calls && msg.tool_calls.length > 0) {
+        // Assistant message with tool calls
+        const content: Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }> = [];
+        if (msg.content) {
+          content.push({ type: "text", text: msg.content });
+        }
+        for (const tc of msg.tool_calls) {
+          content.push({
+            type: "tool_use",
+            id: tc.id,
+            name: tc.function.name,
+            input: JSON.parse(tc.function.arguments),
+          });
+        }
+        anthropicMessages.push({ role: "assistant", content });
+      } else {
+        anthropicMessages.push({
+          role: "assistant",
+          content: msg.content ?? "",
+        });
+      }
+    } else if (msg.role === "tool") {
+      // Tool result - add to previous user message or create new one
+      const toolResult = {
+        type: "tool_result" as const,
+        tool_use_id: msg.tool_call_id!,
+        content: msg.content ?? "",
+      };
+      anthropicMessages.push({
+        role: "user",
+        content: [toolResult],
+      });
+    }
   }
 
-  // OpenRouter uses OpenAI-compatible API format
+  // Convert tools to Anthropic format
+  const anthropicTools = tools.map((t) => ({
+    name: t.function.name,
+    description: t.function.description,
+    input_schema: t.function.parameters,
+  }));
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      max_tokens: 4096,
+      system: systemMessage?.content ?? undefined,
+      messages: anthropicMessages,
+      tools: anthropicTools,
+      tool_choice: { type: "auto" },
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Anthropic API error (${response.status}): ${error}`);
+  }
+
+  const data = await response.json();
+
+  if (data.error) {
+    throw new Error(`Anthropic error: ${data.error.message || JSON.stringify(data.error)}`);
+  }
+
+  // Parse Anthropic response into our format
+  let textContent: string | null = null;
+  const toolCalls: Array<{ id: string; function: { name: string; arguments: string } }> = [];
+
+  for (const block of data.content || []) {
+    if (block.type === "text") {
+      textContent = block.text;
+    } else if (block.type === "tool_use") {
+      toolCalls.push({
+        id: block.id,
+        function: {
+          name: block.name,
+          arguments: JSON.stringify(block.input),
+        },
+      });
+    }
+  }
+
+  return {
+    content: textContent,
+    toolCalls: toolCalls.length > 0 ? toolCalls : null,
+  };
+}
+
+// Call OpenRouter API (OpenAI-compatible)
+async function callOpenRouterLLM(
+  config: (typeof MODELS)[ModelKey],
+  messages: Array<{
+    role: "system" | "user" | "assistant" | "tool";
+    content: string | null;
+    tool_calls?: any[];
+    tool_call_id?: string;
+  }>,
+  tools: typeof GAME_TOOLS,
+  apiKey: string
+): Promise<{
+  content: string | null;
+  toolCalls: Array<{
+    id: string;
+    function: { name: string; arguments: string };
+  }> | null;
+}> {
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {

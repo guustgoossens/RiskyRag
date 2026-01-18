@@ -19,19 +19,19 @@ interface PlayerConfigProps {
   onRemovePlayer: (id: string) => void;
 }
 
-const AI_MODELS: { value: LLMModel; label: string; description: string }[] = [
-  // OpenAI
-  { value: "gpt-4o", label: "GPT-4o", description: "Best strategic reasoning" },
-  { value: "gpt-4o-mini", label: "GPT-4o Mini", description: "Fast, cost-effective" },
-  // Anthropic
-  { value: "claude-sonnet", label: "Claude Sonnet", description: "Superior negotiation" },
-  // DigitalOcean Gradient
-  { value: "deepseek-r1-70b", label: "DeepSeek R1 70B", description: "Best open-source reasoning" },
-  { value: "mistral-nemo", label: "Mistral NeMo 12B", description: "Fast, 128K context" },
-  { value: "llama-3.1-8b", label: "Llama 3.1 8B", description: "Lightweight, fast" },
-  { value: "qwen3-32b", label: "Qwen3 32B", description: "Strong multilingual" },
-  // Self-hosted vLLM
-  { value: "llama-3.2-7b", label: "Llama 3.2 7B (vLLM)", description: "Local inference" },
+const AI_MODELS: { value: LLMModel; label: string; description: string; tier: "stable" | "experimental" }[] = [
+  // === Stable (Recommended - reliable tool calling) ===
+  { value: "devstral", label: "★ Devstral (Free)", description: "Best free model", tier: "stable" },
+  { value: "claude-sonnet", label: "★ Claude Sonnet", description: "Best overall (Anthropic)", tier: "stable" },
+  { value: "claude-opus", label: "★ Claude Opus", description: "Most capable (Anthropic)", tier: "stable" },
+  // === Experimental (May fail or produce errors) ===
+  { value: "claude-haiku", label: "Claude Haiku", description: "Fast but less reliable", tier: "experimental" },
+  { value: "llama-3.3-70b", label: "Llama 3.3 70B", description: "Tool use can fail", tier: "experimental" },
+  { value: "qwen3-32b", label: "Qwen3 32B", description: "Inconsistent tools", tier: "experimental" },
+  { value: "mistral-small", label: "Mistral Small 24B", description: "Error-prone", tier: "experimental" },
+  { value: "trinity-mini", label: "Trinity Mini (Free)", description: "Often fails", tier: "experimental" },
+  { value: "qwen3-coder", label: "Qwen3 Coder (Free)", description: "Very inconsistent", tier: "experimental" },
+  { value: "gemma-3-27b", label: "Gemma 3 27B", description: "Frequently fails", tier: "experimental" },
 ];
 
 export function PlayerConfig({

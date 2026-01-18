@@ -52,16 +52,18 @@ export interface Player {
 }
 
 export type LLMModel =
-  | "gpt-4o"
-  | "gpt-4o-mini"
-  | "claude-sonnet"
-  | "claude-haiku"
-  // Self-hosted vLLM on DO GPU Droplet
+  // === Stable (Recommended - reliable tool calling) ===
+  | "devstral"        // Best free model
+  | "claude-sonnet"   // Best overall (Anthropic)
+  | "claude-opus"     // Most capable (Anthropic)
+  // === Experimental (May fail or produce errors) ===
+  | "claude-haiku"    // Fast but less reliable
   | "llama-3.3-70b"
-  | "llama-3.1-70b"
   | "qwen3-32b"
-  | "mistral-nemo-12b"
-  | "llama-3.1-8b";
+  | "mistral-small"
+  | "trinity-mini"
+  | "qwen3-coder"
+  | "gemma-3-27b";
 
 export interface Territory {
   _id: string;

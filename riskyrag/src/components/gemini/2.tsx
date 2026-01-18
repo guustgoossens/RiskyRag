@@ -205,20 +205,21 @@ const SCENARIOS = [
   },
 ];
 
-// OpenRouter models with CONFIRMED tool_choice support
-// IMPORTANT: Many free models support "tools" but NOT "tool_choice"
-// See: https://github.com/block/goose/issues/3054
+// AI Models grouped by reliability
+// IMPORTANT: Only Devstral and Claude models are confirmed stable for tool calling
 const AI_MODELS = [
-  // === CONFIRMED WORKING FREE MODELS ===
-  { id: "devstral", name: "Devstral (Free)", desc: "Mistral dev-focused, confirmed tool_choice.", complexity: "Medium" },
-  { id: "trinity-mini", name: "Trinity Mini (Free)", desc: "Arcee 26B MoE, confirmed tool_choice.", complexity: "Low" },
-  { id: "tng-r1t-chimera", name: "TNG R1T Chimera (Free)", desc: "TNG's R1T, confirmed tool_choice.", complexity: "Medium" },
-  { id: "qwen3-coder", name: "Qwen3 Coder (Free)", desc: "Qwen3 Coder, confirmed tool_choice.", complexity: "Medium" },
-  // === PAID MODELS (low cost, reliable) ===
-  { id: "llama-3.3-70b", name: "Llama 3.3 70B", desc: "Meta's best, ~$0.10/M tokens.", complexity: "High" },
-  { id: "qwen3-32b", name: "Qwen3 32B", desc: "Strong reasoning, ~$0.08/M tokens.", complexity: "Medium" },
-  { id: "gemma-3-27b", name: "Gemma 3 27B", desc: "Google's 27B, ~$0.10/M tokens.", complexity: "Medium" },
-  { id: "mistral-small", name: "Mistral Small 24B", desc: "Fast + reliable, ~$0.10/M tokens.", complexity: "Medium" },
+  // === STABLE (Recommended - reliable tool calling) ===
+  { id: "devstral", name: "★ Devstral (Free)", desc: "Best free model. Excellent tool use.", complexity: "Medium", tier: "stable" },
+  { id: "claude-sonnet", name: "★ Claude Sonnet", desc: "Best overall. Superior reasoning. (Anthropic)", complexity: "High", tier: "stable" },
+  { id: "claude-opus", name: "★ Claude Opus", desc: "Most capable. Deep analysis. (Anthropic)", complexity: "Very High", tier: "stable" },
+  // === EXPERIMENTAL (May fail or produce errors) ===
+  { id: "claude-haiku", name: "Claude Haiku", desc: "Fast but less reliable. (Anthropic)", complexity: "Low", tier: "experimental" },
+  { id: "llama-3.3-70b", name: "Llama 3.3 70B", desc: "Meta's best. Tool use can fail.", complexity: "High", tier: "experimental" },
+  { id: "qwen3-32b", name: "Qwen3 32B", desc: "Strong reasoning. Inconsistent tools.", complexity: "Medium", tier: "experimental" },
+  { id: "mistral-small", name: "Mistral Small 24B", desc: "Fast but error-prone.", complexity: "Medium", tier: "experimental" },
+  { id: "trinity-mini", name: "Trinity Mini (Free)", desc: "Arcee 26B MoE. Often fails.", complexity: "Low", tier: "experimental" },
+  { id: "qwen3-coder", name: "Qwen3 Coder (Free)", desc: "Very inconsistent tool use.", complexity: "Medium", tier: "experimental" },
+  { id: "gemma-3-27b", name: "Gemma 3 27B", desc: "Google's 27B. Frequently fails.", complexity: "Medium", tier: "experimental" },
 ];
 
 // Maps lobby faction IDs to the nation names used in convex/scenarios.ts
@@ -788,9 +789,16 @@ export default function Lobby() {
                               onChange={(e) => setFactionModels((prev) => ({ ...prev, [faction.id]: e.target.value }))}
                               value={factionModels[faction.id] || "devstral"}
                             >
-                              {AI_MODELS.map((model) => (
-                                <option key={model.id} value={model.id}>{model.name}</option>
-                              ))}
+                              <optgroup label="★ Stable (Recommended)">
+                                {AI_MODELS.filter(m => m.tier === "stable").map((model) => (
+                                  <option key={model.id} value={model.id}>{model.name}</option>
+                                ))}
+                              </optgroup>
+                              <optgroup label="⚠️ Experimental (May Fail)">
+                                {AI_MODELS.filter(m => m.tier === "experimental").map((model) => (
+                                  <option key={model.id} value={model.id}>{model.name}</option>
+                                ))}
+                              </optgroup>
                             </select>
                             <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
                               <ChevronRight size={12} className="rotate-90" />
