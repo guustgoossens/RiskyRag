@@ -10,21 +10,62 @@ const MODELS = {
     provider: "openai",
     model: "gpt-4o",
     apiKeyEnv: "OPENAI_API_KEY",
+    supportsTools: true,
   },
   "gpt-4o-mini": {
     provider: "openai",
     model: "gpt-4o-mini",
     apiKeyEnv: "OPENAI_API_KEY",
+    supportsTools: true,
   },
   "claude-sonnet": {
     provider: "anthropic",
     model: "claude-sonnet-4-20250514",
     apiKeyEnv: "ANTHROPIC_API_KEY",
+    supportsTools: true,
   },
-  "llama-3.2-7b": {
+  "claude-haiku": {
+    provider: "anthropic",
+    model: "claude-haiku-4-5-20251001",
+    apiKeyEnv: "ANTHROPIC_API_KEY",
+    supportsTools: true,
+  },
+  // Self-hosted vLLM on DigitalOcean GPU Droplet
+  // These have --enable-auto-tool-choice enabled for proper tool calling
+  "llama-3.3-70b": {
     provider: "vllm",
-    model: "meta-llama/Llama-3.2-7B-Instruct",
+    model: "meta-llama/Llama-3.3-70B-Instruct",
     apiKeyEnv: "VLLM_API_KEY",
+    supportsTools: true,
+    toolParser: "llama3_json",
+  },
+  "llama-3.1-70b": {
+    provider: "vllm",
+    model: "meta-llama/Llama-3.1-70B-Instruct",
+    apiKeyEnv: "VLLM_API_KEY",
+    supportsTools: true,
+    toolParser: "llama3_json",
+  },
+  "qwen3-32b": {
+    provider: "vllm",
+    model: "Qwen/Qwen3-32B",
+    apiKeyEnv: "VLLM_API_KEY",
+    supportsTools: true,
+    toolParser: "hermes",
+  },
+  "mistral-nemo-12b": {
+    provider: "vllm",
+    model: "mistralai/Mistral-Nemo-Instruct-2407",
+    apiKeyEnv: "VLLM_API_KEY",
+    supportsTools: true,
+    toolParser: "mistral",
+  },
+  "llama-3.1-8b": {
+    provider: "vllm",
+    model: "meta-llama/Llama-3.1-8B-Instruct",
+    apiKeyEnv: "VLLM_API_KEY",
+    supportsTools: true,
+    toolParser: "llama3_json",
   },
 } as const;
 
@@ -575,14 +616,16 @@ Current Game State (Turn ${game.currentTurn}):
 Date: ${gameDate.toLocaleDateString("en-US", { year: "numeric", month: "long" })}
 
 Your Territories (${myTerritories.length}):
-${myTerritories.map((t: Doc<"territories">) => `- ${t.displayName}: ${t.troops} troops (adjacent to: ${t.adjacentTo.join(", ")})`).join("\n")}
+${myTerritories.map((t: Doc<"territories">) => `- ${t.name}: ${t.troops} troops (adjacent to: ${t.adjacentTo.join(", ")})`).join("\n")}
 
-Other Powers:
+IMPORTANT: Use the exact territory names shown above (e.g., "constantinople", "thrace") in tool calls. These are case-sensitive identifiers.
+
+Enemy Territories (you can attack these):
 ${players
   .filter((p: Doc<"players">) => p._id !== args.playerId && !p.isEliminated)
   .map((p: Doc<"players">) => {
     const theirTerritories = territories.filter((t: Doc<"territories">) => t.ownerId === p._id);
-    return `- ${p.nation}: ${theirTerritories.length} territories`;
+    return `${p.nation}:\n${theirTerritories.map((t: Doc<"territories">) => `  - ${t.name}: ${t.troops} troops`).join("\n")}`;
   })
   .join("\n")}
 
@@ -643,7 +686,7 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
 
       let turnComplete = false;
       let iterations = 0;
-      const maxIterations = 10;
+      const maxIterations = 20; // Allow plenty of room for full turn completion
 
       while (!turnComplete && iterations < maxIterations) {
         iterations++;
@@ -997,13 +1040,95 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
       if (!turnComplete) {
         // Force end turn if max iterations reached
         finalReasoning = "Max iterations reached";
-        await ctx.runMutation(api.gameLog.add, {
-          gameId: args.gameId,
-          turn: game.currentTurn,
-          playerId: args.playerId,
-          action: "end_turn",
-          details: { reasoning: "Max iterations reached", forced: true },
-        });
+
+        // Get fresh game state to check phase
+        const currentGame = await ctx.runQuery(api.games.get, { id: args.gameId });
+        const currentPlayer = await ctx.runQuery(api.players.get, { id: args.playerId });
+
+        if (currentGame?.phase === "setup") {
+          // During setup, we need to handle this specially
+          const troopsRemaining = currentPlayer?.setupTroopsRemaining ?? 0;
+
+          if (troopsRemaining === 0) {
+            // All troops placed, auto-finish setup to trigger next player
+            try {
+              await ctx.runMutation(api.territories.finishSetup, {
+                gameId: args.gameId,
+                playerId: args.playerId,
+              });
+              finalReasoning = "Setup auto-completed after max iterations";
+            } catch (e) {
+              // finishSetup might fail if already advanced, ignore
+            }
+          } else {
+            // Still has troops - auto-place them evenly across territories
+            const myTerritories = await ctx.runQuery(api.territories.getByOwner, {
+              playerId: args.playerId,
+            });
+
+            if (myTerritories.length > 0) {
+              // Distribute remaining troops evenly
+              const troopsPerTerritory = Math.floor(troopsRemaining / myTerritories.length);
+              let leftover = troopsRemaining % myTerritories.length;
+
+              for (const territory of myTerritories) {
+                const toPlace = troopsPerTerritory + (leftover > 0 ? 1 : 0);
+                if (leftover > 0) leftover--;
+
+                if (toPlace > 0) {
+                  try {
+                    await ctx.runMutation(api.territories.placeSetupTroop, {
+                      gameId: args.gameId,
+                      playerId: args.playerId,
+                      territory: territory.name,
+                      troops: toPlace,
+                    });
+                  } catch (e) {
+                    // Ignore placement errors
+                  }
+                }
+              }
+
+              // Now finish setup
+              try {
+                await ctx.runMutation(api.territories.finishSetup, {
+                  gameId: args.gameId,
+                  playerId: args.playerId,
+                });
+                finalReasoning = "Setup auto-completed with distributed troops";
+              } catch (e) {
+                // finishSetup might fail, ignore
+              }
+            }
+          }
+        } else {
+          // Normal turn - auto-complete if done checkpoint was reached
+          if (doneCheckpoint) {
+            // Agent called done() but didn't call end_turn - auto-complete
+            try {
+              await ctx.runMutation(api.games.nextTurn, { gameId: args.gameId });
+              finalReasoning = "Turn auto-completed after done checkpoint";
+            } catch (e) {
+              // nextTurn might fail if there's a pending conquest, log it
+              await ctx.runMutation(api.gameLog.add, {
+                gameId: args.gameId,
+                turn: game.currentTurn,
+                playerId: args.playerId,
+                action: "end_turn",
+                details: { reasoning: "Max iterations after done", forced: true, error: String(e) },
+              });
+            }
+          } else {
+            // Agent didn't even call done - just log it
+            await ctx.runMutation(api.gameLog.add, {
+              gameId: args.gameId,
+              turn: game.currentTurn,
+              playerId: args.playerId,
+              action: "end_turn",
+              details: { reasoning: "Max iterations reached", forced: true },
+            });
+          }
+        }
       }
 
       // ===== COMPLETE ACTIVITY =====
@@ -1083,14 +1208,46 @@ async function callLLM(
 
   if (config.provider === "anthropic") {
     // Convert OpenAI format to Anthropic format
-    const anthropicMessages = messages
-      .filter((m) => m.role !== "system")
-      .map((m) => ({
-        role: m.role === "assistant" ? "assistant" : "user",
-        content: m.content ?? "",
-      }));
-
+    const anthropicMessages: Array<{ role: "user" | "assistant"; content: any }> = [];
     const systemMessage = messages.find((m) => m.role === "system");
+
+    for (const m of messages) {
+      if (m.role === "system") continue;
+
+      if (m.role === "assistant") {
+        // Assistant message - might have tool_calls
+        if (m.tool_calls && m.tool_calls.length > 0) {
+          // Convert to Anthropic tool_use format
+          const content: any[] = [];
+          if (m.content) {
+            content.push({ type: "text", text: m.content });
+          }
+          for (const tc of m.tool_calls) {
+            content.push({
+              type: "tool_use",
+              id: tc.id,
+              name: tc.function.name,
+              input: JSON.parse(tc.function.arguments),
+            });
+          }
+          anthropicMessages.push({ role: "assistant", content });
+        } else if (m.content) {
+          anthropicMessages.push({ role: "assistant", content: m.content });
+        }
+      } else if (m.role === "tool") {
+        // Tool result - convert to Anthropic tool_result format
+        anthropicMessages.push({
+          role: "user",
+          content: [{
+            type: "tool_result",
+            tool_use_id: m.tool_call_id,
+            content: m.content ?? "",
+          }],
+        });
+      } else if (m.role === "user" && m.content) {
+        anthropicMessages.push({ role: "user", content: m.content });
+      }
+    }
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -1141,6 +1298,8 @@ async function callLLM(
   }
 
   if (config.provider === "vllm") {
+    // Self-hosted vLLM on DigitalOcean GPU Droplet
+    // Requires: --enable-auto-tool-choice --tool-call-parser <parser>
     const vllmEndpoint =
       process.env.VLLM_ENDPOINT ?? "http://localhost:8000/v1/chat/completions";
 
@@ -1148,13 +1307,15 @@ async function callLLM(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        ...(apiKey && apiKey !== "dummy" ? { Authorization: `Bearer ${apiKey}` } : {}),
       },
       body: JSON.stringify({
         model: config.model,
         messages,
         tools,
         tool_choice: "auto",
+        max_tokens: 2048,
+        temperature: 0.7,
       }),
     });
 
@@ -1175,3 +1336,41 @@ async function callLLM(
   // This should never be reached, but TypeScript needs it
   throw new Error(`Unknown provider: ${(config as ModelConfig).provider}`);
 }
+
+// Helper action to trigger AI turn for current player (useful for debugging/manual kicks)
+export const triggerCurrentAI = action({
+  args: {
+    gameId: v.id("games"),
+  },
+  handler: async (ctx, args): Promise<{ triggered: boolean; playerId?: string; reason?: string }> => {
+    const game = await ctx.runQuery(api.games.get, { id: args.gameId });
+    if (!game) {
+      return { triggered: false, reason: "Game not found" };
+    }
+
+    if (game.status !== "active") {
+      return { triggered: false, reason: `Game is ${game.status}` };
+    }
+
+    if (!game.currentPlayerId) {
+      return { triggered: false, reason: "No current player" };
+    }
+
+    const player = await ctx.runQuery(api.players.get, { id: game.currentPlayerId });
+    if (!player) {
+      return { triggered: false, reason: "Current player not found" };
+    }
+
+    if (player.isHuman) {
+      return { triggered: false, reason: "Current player is human" };
+    }
+
+    // Trigger the AI turn
+    await ctx.scheduler.runAfter(0, api.agent.executeTurn, {
+      gameId: args.gameId,
+      playerId: game.currentPlayerId,
+    });
+
+    return { triggered: true, playerId: game.currentPlayerId };
+  },
+});

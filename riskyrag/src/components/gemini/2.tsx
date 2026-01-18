@@ -7,6 +7,8 @@ import {
   ChevronRight,
   Check,
   BrainCircuit,
+  Eye,
+  User,
 } from "lucide-react";
 import { useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
@@ -91,23 +93,62 @@ const SCENARIOS = [
 ];
 
 const AI_MODELS = [
+  // OpenAI (Frontier)
   {
-    id: "gpt4",
-    name: "Strategos-4 (GPT-4)",
-    desc: "Balanced, diplomatic, high strategic depth.",
+    id: "gpt-4o",
+    name: "GPT-4o",
+    desc: "Best strategic reasoning, highest accuracy.",
     complexity: "High",
   },
   {
-    id: "claude",
-    name: "Historian-3 (Claude)",
-    desc: "Cautious, historically accurate decisions.",
+    id: "gpt-4o-mini",
+    name: "GPT-4o Mini",
+    desc: "Fast, cost-effective frontier model.",
+    complexity: "Medium",
+  },
+  // Anthropic
+  {
+    id: "claude-sonnet",
+    name: "Claude Sonnet",
+    desc: "Superior reasoning and negotiation.",
+    complexity: "High",
+  },
+  {
+    id: "claude-haiku",
+    name: "Claude Haiku",
+    desc: "Fast and cheap, good for testing.",
+    complexity: "Low",
+  },
+  // Self-hosted vLLM on DO GPU Droplet (Open Source)
+  {
+    id: "llama-3.3-70b",
+    name: "Llama 3.3 70B",
+    desc: "Best OSS model, 77% BFCL score.",
+    complexity: "High",
+  },
+  {
+    id: "llama-3.1-70b",
+    name: "Llama 3.1 70B",
+    desc: "Strong OSS reasoning model.",
+    complexity: "High",
+  },
+  {
+    id: "qwen3-32b",
+    name: "Qwen3 32B",
+    desc: "Strong multilingual, MoE architecture.",
     complexity: "Medium",
   },
   {
-    id: "llama",
-    name: "Warlord-3.2 (Llama)",
-    desc: "Aggressive, expansionist, rapid turns.",
-    complexity: "High",
+    id: "mistral-nemo-12b",
+    name: "Mistral NeMo 12B",
+    desc: "Fast inference, 128K context.",
+    complexity: "Medium",
+  },
+  {
+    id: "llama-3.1-8b",
+    name: "Llama 3.1 8B",
+    desc: "Lightweight, very fast responses.",
+    complexity: "Low",
   },
 ];
 
@@ -123,18 +164,17 @@ const FACTION_TO_NATION: Record<string, string> = {
   confederacy: "Confederacy",
 };
 
-// Map UI model IDs to actual model identifiers
-const MODEL_ID_TO_NAME: Record<string, string> = {
-  gpt4: "gpt-4o",
-  claude: "claude-3-5-sonnet-20241022",
-  llama: "llama-3.2-70b",
-};
+// Model IDs now match backend MODELS keys directly
+// No mapping needed - the ID is the model name
+
+type GameMode = "play" | "spectate";
 
 export default function Lobby() {
   const navigate = useNavigate();
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
+  const [gameMode, setGameMode] = useState<GameMode>("spectate"); // Default to spectate for AI vs AI
   const [playerNationId, setPlayerNationId] = useState<string | null>(null);
-  const [opponents, setOpponents] = useState<Record<string, { enabled?: boolean; model: string }>>({});
+  const [factionModels, setFactionModels] = useState<Record<string, string>>({});
   const [isLaunching, setIsLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -146,21 +186,22 @@ export default function Lobby() {
 
   const activeScenario = SCENARIOS.find((s) => s.id === selectedScenarioId);
 
-  // Initialize opponents when scenario changes
+  // Initialize faction models when scenario changes
   useEffect(() => {
-    if (activeScenario && playerNationId) {
-      const initialOpponents: Record<string, { enabled?: boolean; model: string }> = {};
-      activeScenario.factions
-        .filter((f) => f.id !== playerNationId)
-        .forEach((f) => {
-          initialOpponents[f.id] = { enabled: true, model: "gpt4" };
-        });
-      setOpponents(initialOpponents);
+    if (activeScenario) {
+      const initialModels: Record<string, string> = {};
+      activeScenario.factions.forEach((f, idx) => {
+        // Alternate between models for variety in spectate mode
+        initialModels[f.id] = idx === 0 ? "gpt-4o" : "deepseek-r1-70b";
+      });
+      setFactionModels(initialModels);
     }
-  }, [selectedScenarioId, playerNationId]);
+  }, [selectedScenarioId]);
 
   const handleStartGame = async () => {
-    if (!selectedScenarioId || !playerNationId) return;
+    if (!selectedScenarioId) return;
+    // In play mode, require a nation selection
+    if (gameMode === "play" && !playerNationId) return;
 
     setIsLaunching(true);
     setError(null);
@@ -171,24 +212,28 @@ export default function Lobby() {
         scenario: selectedScenarioId,
       });
 
-      // 2. Join as the human player
-      const playerNation = FACTION_TO_NATION[playerNationId];
-      if (!playerNation) {
-        throw new Error(`Unknown faction: ${playerNationId}`);
+      // 2. In play mode, join as the human player
+      if (gameMode === "play" && playerNationId) {
+        const playerNation = FACTION_TO_NATION[playerNationId];
+        if (!playerNation) {
+          throw new Error(`Unknown faction: ${playerNationId}`);
+        }
+
+        await joinGame({
+          gameId,
+          nation: playerNation,
+        });
       }
 
-      await joinGame({
-        gameId,
-        nation: playerNation,
-      });
-
-      // 3. Build AI model preferences from opponent selections
+      // 3. Build AI model preferences from faction selections
       const aiModels: Record<string, string> = {};
-      for (const [factionId, config] of Object.entries(opponents)) {
+      for (const [factionId, model] of Object.entries(factionModels)) {
+        // In play mode, skip the human player's faction
+        if (gameMode === "play" && factionId === playerNationId) continue;
+
         const nationName = FACTION_TO_NATION[factionId];
-        const modelName = MODEL_ID_TO_NAME[config.model] || "gpt-4o";
         if (nationName) {
-          aiModels[nationName] = modelName;
+          aiModels[nationName] = model || "gpt-4o";
         }
       }
 
@@ -358,71 +403,110 @@ export default function Lobby() {
                   Match Configuration
                 </h2>
 
-                {/* 1. Player Nation Selection (The "Old World" UI) */}
-                <div className="mb-8">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="h-px bg-[#D4AF37]/30 flex-1" />
-                    <h3 className="font-serif text-[#D4AF37] text-xl">
-                      Select Your Nation
-                    </h3>
-                    <div className="h-px bg-[#D4AF37]/30 flex-1" />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {activeScenario.factions.map((faction) => {
-                      const isSelected = playerNationId === faction.id;
-                      return (
-                        <button
-                          key={faction.id}
-                          onClick={() => setPlayerNationId(faction.id)}
-                          className={`
-                            relative p-4 text-left border-2 rounded transition-all duration-200
-                            ${
-                              isSelected
-                                ? "bg-[#F5E6CC] border-[#D4AF37] shadow-lg translate-x-1"
-                                : "bg-slate-800/50 border-slate-700 hover:border-slate-500 hover:bg-slate-800"
-                            }
-                          `}
-                        >
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <div
-                                className={`font-serif font-bold ${isSelected ? "text-[#0F172A]" : "text-slate-200"}`}
-                              >
-                                {faction.name}
-                              </div>
-                              <div
-                                className={`text-xs mt-1 ${isSelected ? "text-slate-700" : "text-slate-400"}`}
-                              >
-                                {faction.strength}
-                              </div>
-                            </div>
-                            {/* Color Swatch */}
-                            <div
-                              className="w-4 h-4 rounded-full border border-black/20"
-                              style={{ backgroundColor: faction.color }}
-                            />
-                          </div>
-                        </button>
-                      );
-                    })}
+                {/* Game Mode Toggle */}
+                <div className="mb-6">
+                  <div className="flex bg-slate-900/80 rounded-lg p-1 border border-slate-700">
+                    <button
+                      onClick={() => {
+                        setGameMode("spectate");
+                        setPlayerNationId(null);
+                      }}
+                      className={`
+                        flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md
+                        font-mono text-sm transition-all duration-200
+                        ${gameMode === "spectate"
+                          ? "bg-[#00FFA3]/20 text-[#00FFA3] border border-[#00FFA3]/30"
+                          : "text-slate-400 hover:text-slate-200"
+                        }
+                      `}
+                    >
+                      <Eye size={16} />
+                      Spectate AI vs AI
+                    </button>
+                    <button
+                      onClick={() => setGameMode("play")}
+                      className={`
+                        flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md
+                        font-mono text-sm transition-all duration-200
+                        ${gameMode === "play"
+                          ? "bg-[#D4AF37]/20 text-[#D4AF37] border border-[#D4AF37]/30"
+                          : "text-slate-400 hover:text-slate-200"
+                        }
+                      `}
+                    >
+                      <User size={16} />
+                      Play as Human
+                    </button>
                   </div>
                 </div>
 
-                {/* 2. AI Opponents Setup (The "New World" UI) */}
-                {playerNationId && (
+                {/* Player Nation Selection - Only in Play mode */}
+                {gameMode === "play" && (
+                  <div className="mb-8 animate-fade-in-up">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="h-px bg-[#D4AF37]/30 flex-1" />
+                      <h3 className="font-serif text-[#D4AF37] text-xl">
+                        Select Your Nation
+                      </h3>
+                      <div className="h-px bg-[#D4AF37]/30 flex-1" />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {activeScenario.factions.map((faction) => {
+                        const isSelected = playerNationId === faction.id;
+                        return (
+                          <button
+                            key={faction.id}
+                            onClick={() => setPlayerNationId(faction.id)}
+                            className={`
+                              relative p-4 text-left border-2 rounded transition-all duration-200
+                              ${
+                                isSelected
+                                  ? "bg-[#F5E6CC] border-[#D4AF37] shadow-lg translate-x-1"
+                                  : "bg-slate-800/50 border-slate-700 hover:border-slate-500 hover:bg-slate-800"
+                              }
+                            `}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div>
+                                <div
+                                  className={`font-serif font-bold ${isSelected ? "text-[#0F172A]" : "text-slate-200"}`}
+                                >
+                                  {faction.name}
+                                </div>
+                                <div
+                                  className={`text-xs mt-1 ${isSelected ? "text-slate-700" : "text-slate-400"}`}
+                                >
+                                  {faction.strength}
+                                </div>
+                              </div>
+                              {/* Color Swatch */}
+                              <div
+                                className="w-4 h-4 rounded-full border border-black/20"
+                                style={{ backgroundColor: faction.color }}
+                              />
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* AI Configuration - Show when ready */}
+                {(gameMode === "spectate" || (gameMode === "play" && playerNationId)) && (
                   <div className="flex-1 animate-fade-in-up">
                     <div className="flex items-center gap-3 mb-4">
                       <div className="h-px bg-[#00FFA3]/30 flex-1" />
                       <h3 className="font-mono text-[#00FFA3] text-sm tracking-wider">
-                        OPPOSING INTELLIGENCE
+                        {gameMode === "spectate" ? "AI COMBATANTS" : "OPPOSING INTELLIGENCE"}
                       </h3>
                       <div className="h-px bg-[#00FFA3]/30 flex-1" />
                     </div>
 
                     <div className="space-y-4 mb-8">
                       {activeScenario.factions
-                        .filter((f) => f.id !== playerNationId)
+                        .filter((f) => gameMode === "spectate" || f.id !== playerNationId)
                         .map((faction) => (
                           <div
                             key={faction.id}
@@ -430,7 +514,10 @@ export default function Lobby() {
                           >
                             {/* Faction Info */}
                             <div className="flex items-center gap-3 w-full md:w-1/3">
-                              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-slate-800 text-slate-400 font-serif font-bold">
+                              <div
+                                className="w-8 h-8 rounded-full flex items-center justify-center font-serif font-bold text-white"
+                                style={{ backgroundColor: faction.color }}
+                              >
                                 {faction.name.charAt(0)}
                               </div>
                               <span className="text-slate-300 font-serif text-sm">
@@ -448,15 +535,12 @@ export default function Lobby() {
                                 <select
                                   className="w-full bg-slate-950 border border-slate-700 rounded px-10 py-2 text-xs font-mono text-slate-300 focus:border-[#00FFA3] focus:outline-none appearance-none cursor-pointer hover:bg-slate-900"
                                   onChange={(e) => {
-                                    setOpponents((prev) => ({
+                                    setFactionModels((prev) => ({
                                       ...prev,
-                                      [faction.id]: {
-                                        ...prev[faction.id],
-                                        model: e.target.value,
-                                      },
+                                      [faction.id]: e.target.value,
                                     }));
                                   }}
-                                  value={opponents[faction.id]?.model || "gpt4"}
+                                  value={factionModels[faction.id] || "gpt-4o"}
                                 >
                                   {AI_MODELS.map((model) => (
                                     <option key={model.id} value={model.id}>
@@ -516,11 +600,15 @@ export default function Lobby() {
                             <span
                               className={`font-serif font-bold text-lg tracking-[0.15em] ${COLORS.voidNavyDark}`}
                             >
-                              BEGIN CAMPAIGN
+                              {gameMode === "spectate" ? "START SIMULATION" : "BEGIN CAMPAIGN"}
                             </span>
-                            <Swords
-                              className={`w-5 h-5 ${COLORS.voidNavyDark} group-hover:rotate-12 transition-transform`}
-                            />
+                            {gameMode === "spectate" ? (
+                              <Eye className={`w-5 h-5 ${COLORS.voidNavyDark}`} />
+                            ) : (
+                              <Swords
+                                className={`w-5 h-5 ${COLORS.voidNavyDark} group-hover:rotate-12 transition-transform`}
+                              />
+                            )}
                           </>
                         )}
 
@@ -535,7 +623,10 @@ export default function Lobby() {
 
                       <div className="text-center mt-3">
                         <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest">
-                          Estimated Simulation Time: Infinite
+                          {gameMode === "spectate"
+                            ? "Watch AI models compete in real-time"
+                            : "Estimated Simulation Time: Infinite"
+                          }
                         </span>
                       </div>
                     </div>

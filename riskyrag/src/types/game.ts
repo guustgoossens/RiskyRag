@@ -51,7 +51,17 @@ export interface Player {
   color: string;
 }
 
-export type LLMModel = "gpt-4" | "claude-sonnet" | "llama-3.2-7b" | "llama-3.2-13b";
+export type LLMModel =
+  | "gpt-4o"
+  | "gpt-4o-mini"
+  | "claude-sonnet"
+  | "claude-haiku"
+  // Self-hosted vLLM on DO GPU Droplet
+  | "llama-3.3-70b"
+  | "llama-3.1-70b"
+  | "qwen3-32b"
+  | "mistral-nemo-12b"
+  | "llama-3.1-8b";
 
 export interface Territory {
   _id: string;

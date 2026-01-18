@@ -1,7 +1,49 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { api } from "./_generated/api";
 import { REGION_BONUSES, type ScenarioId } from "./scenarios";
+import type { Doc, Id } from "./_generated/dataModel";
+
+// Helper to find a territory by name OR displayName (case-insensitive)
+// This allows agents to use either "Constantinople" or "constantinople"
+async function findTerritory(
+  ctx: MutationCtx,
+  gameId: Id<"games">,
+  territoryInput: string
+): Promise<Doc<"territories"> | null> {
+  // First try exact match on internal name (indexed, fast)
+  let territory = await ctx.db
+    .query("territories")
+    .withIndex("by_game_name", (q) =>
+      q.eq("gameId", gameId).eq("name", territoryInput)
+    )
+    .first();
+
+  if (territory) return territory;
+
+  // Try lowercase match on internal name
+  const lowerInput = territoryInput.toLowerCase();
+  territory = await ctx.db
+    .query("territories")
+    .withIndex("by_game_name", (q) =>
+      q.eq("gameId", gameId).eq("name", lowerInput)
+    )
+    .first();
+
+  if (territory) return territory;
+
+  // Try matching by displayName (case-insensitive)
+  const allTerritories = await ctx.db
+    .query("territories")
+    .withIndex("by_game", (q) => q.eq("gameId", gameId))
+    .collect();
+
+  return allTerritories.find(
+    (t) =>
+      t.displayName.toLowerCase() === lowerInput ||
+      t.displayName === territoryInput
+  ) ?? null;
+}
 
 // Roll N dice and return sorted descending
 function rollDice(count: number): number[] {
@@ -115,23 +157,15 @@ export const moveTroops = mutation({
       throw new Error("Must confirm conquest before fortifying");
     }
 
-    // Get both territories
-    const from = await ctx.db
-      .query("territories")
-      .withIndex("by_game_name", (q) =>
-        q.eq("gameId", args.gameId).eq("name", args.fromTerritory)
-      )
-      .first();
+    // Get both territories (supports both internal name and displayName)
+    const from = await findTerritory(ctx, args.gameId, args.fromTerritory);
+    const to = await findTerritory(ctx, args.gameId, args.toTerritory);
 
-    const to = await ctx.db
-      .query("territories")
-      .withIndex("by_game_name", (q) =>
-        q.eq("gameId", args.gameId).eq("name", args.toTerritory)
-      )
-      .first();
-
-    if (!from || !to) {
-      throw new Error("Territory not found");
+    if (!from) {
+      throw new Error(`Territory not found: "${args.fromTerritory}"`);
+    }
+    if (!to) {
+      throw new Error(`Territory not found: "${args.toTerritory}"`);
     }
 
     // Validate ownership
@@ -139,9 +173,9 @@ export const moveTroops = mutation({
       throw new Error("You don't own both territories");
     }
 
-    // Validate adjacency
-    if (!from.adjacentTo.includes(args.toTerritory)) {
-      throw new Error("Territories are not adjacent");
+    // Validate adjacency (use internal name for comparison)
+    if (!from.adjacentTo.includes(to.name)) {
+      throw new Error(`Territories are not adjacent: ${from.displayName} → ${to.displayName}`);
     }
 
     // Validate troop count
@@ -198,23 +232,15 @@ export const attack = mutation({
       throw new Error(`Cannot attack during ${game.phase} phase`);
     }
 
-    // Get both territories
-    const attacker = await ctx.db
-      .query("territories")
-      .withIndex("by_game_name", (q) =>
-        q.eq("gameId", args.gameId).eq("name", args.fromTerritory)
-      )
-      .first();
+    // Get both territories (supports both internal name and displayName)
+    const attacker = await findTerritory(ctx, args.gameId, args.fromTerritory);
+    const defender = await findTerritory(ctx, args.gameId, args.toTerritory);
 
-    const defender = await ctx.db
-      .query("territories")
-      .withIndex("by_game_name", (q) =>
-        q.eq("gameId", args.gameId).eq("name", args.toTerritory)
-      )
-      .first();
-
-    if (!attacker || !defender) {
-      throw new Error("Territory not found");
+    if (!attacker) {
+      throw new Error(`Territory not found: "${args.fromTerritory}"`);
+    }
+    if (!defender) {
+      throw new Error(`Territory not found: "${args.toTerritory}"`);
     }
 
     // Validate attacker ownership
@@ -227,9 +253,9 @@ export const attack = mutation({
       throw new Error("Cannot attack your own territory");
     }
 
-    // Validate adjacency
-    if (!attacker.adjacentTo.includes(args.toTerritory)) {
-      throw new Error("Territories are not adjacent");
+    // Validate adjacency (use internal name for comparison)
+    if (!attacker.adjacentTo.includes(defender.name)) {
+      throw new Error(`Territories are not adjacent: ${attacker.displayName} → ${defender.displayName}`);
     }
 
     // Validate troop count: must have at least diceCount + 1 troops (leave 1 behind)
@@ -505,15 +531,11 @@ export const reinforce = mutation({
       throw new Error(`Only ${remaining} reinforcements remaining`);
     }
 
-    const territory = await ctx.db
-      .query("territories")
-      .withIndex("by_game_name", (q) =>
-        q.eq("gameId", args.gameId).eq("name", args.territory)
-      )
-      .first();
+    // Find territory (supports both internal name and displayName)
+    const territory = await findTerritory(ctx, args.gameId, args.territory);
 
     if (!territory) {
-      throw new Error("Territory not found");
+      throw new Error(`Territory not found: "${args.territory}"`);
     }
 
     if (territory.ownerId !== args.playerId) {
@@ -530,21 +552,22 @@ export const reinforce = mutation({
       reinforcementsRemaining: newRemaining,
     });
 
-    // Log the action
+    // Log the action (use internal name for consistency)
     await ctx.db.insert("gameLog", {
       gameId: args.gameId,
       turn: game.currentTurn,
       playerId: args.playerId,
       action: "reinforce",
       details: {
-        territory: args.territory,
+        territory: territory.name,
+        displayName: territory.displayName,
         troops: args.troops,
         remaining: newRemaining,
       },
       timestamp: Date.now(),
     });
 
-    return { success: true, remaining: newRemaining };
+    return { success: true, remaining: newRemaining, territory: territory.displayName };
   },
 });
 
@@ -652,16 +675,11 @@ export const placeSetupTroop = mutation({
       throw new Error(`Only ${remaining} setup troops remaining`);
     }
 
-    // Get territory and validate ownership
-    const territory = await ctx.db
-      .query("territories")
-      .withIndex("by_game_name", (q) =>
-        q.eq("gameId", args.gameId).eq("name", args.territory)
-      )
-      .first();
+    // Get territory (supports both internal name and displayName)
+    const territory = await findTerritory(ctx, args.gameId, args.territory);
 
     if (!territory) {
-      throw new Error("Territory not found");
+      throw new Error(`Territory not found: "${args.territory}"`);
     }
     if (territory.ownerId !== args.playerId) {
       throw new Error("You don't own this territory");
@@ -678,21 +696,22 @@ export const placeSetupTroop = mutation({
       setupTroopsRemaining: newRemaining,
     });
 
-    // Log the action
+    // Log the action (use internal name for consistency)
     await ctx.db.insert("gameLog", {
       gameId: args.gameId,
       turn: game.currentTurn,
       playerId: args.playerId,
       action: "setup_place",
       details: {
-        territory: args.territory,
+        territory: territory.name,
+        displayName: territory.displayName,
         troops: args.troops,
         remaining: newRemaining,
       },
       timestamp: Date.now(),
     });
 
-    return { success: true, remaining: newRemaining };
+    return { success: true, remaining: newRemaining, territory: territory.displayName };
   },
 });
 
