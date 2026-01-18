@@ -205,9 +205,75 @@ const GAME_TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "done",
+      description:
+        "Signal that you have completed your turn strategy. Only available during ATTACK or FORTIFY phase. Call this BEFORE end_turn to validate your decisions and ensure quality reasoning. This checkpoint helps track your strategic thinking.",
+      parameters: {
+        type: "object",
+        properties: {
+          status: {
+            type: "string",
+            enum: ["complete", "partial", "defensive"],
+            description:
+              "complete = executed full strategy, partial = couldn't do everything planned, defensive = focused on defense this turn",
+          },
+          strategy_summary: {
+            type: "string",
+            description: "Brief summary of what you accomplished this turn (2-3 sentences)",
+          },
+          checklist: {
+            type: "object",
+            description: "Honest self-assessment of your turn",
+            properties: {
+              consulted_history: {
+                type: "boolean",
+                description: "Did you query historical knowledge to inform decisions?",
+              },
+              evaluated_threats: {
+                type: "boolean",
+                description: "Did you assess enemy positions and potential attacks?",
+              },
+              reinforced_weak_points: {
+                type: "boolean",
+                description: "Did you strengthen vulnerable border territories?",
+              },
+              considered_diplomacy: {
+                type: "boolean",
+                description: "Did you consider or attempt diplomatic options?",
+              },
+              maximized_attacks: {
+                type: "boolean",
+                description: "Did you attack when advantageous (3+ troops vs enemy)?",
+              },
+            },
+            required: [
+              "consulted_history",
+              "evaluated_threats",
+              "reinforced_weak_points",
+              "considered_diplomacy",
+              "maximized_attacks",
+            ],
+          },
+          confidence: {
+            type: "string",
+            enum: ["high", "medium", "low"],
+            description: "Confidence in this turn's decisions",
+          },
+          next_turn_priority: {
+            type: "string",
+            description: "What should be your focus next turn?",
+          },
+        },
+        required: ["status", "strategy_summary", "checklist", "confidence"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "end_turn",
       description:
-        "End your turn. Available during ATTACK or FORTIFY phase. Cannot end turn if there is a pending conquest to confirm.",
+        "End your turn. IMPORTANT: Call the 'done' tool first to validate your strategy. Available during ATTACK or FORTIFY phase. Cannot end turn if there is a pending conquest to confirm.",
       parameters: {
         type: "object",
         properties: {
@@ -267,6 +333,13 @@ export const executeTurn = action({
     });
 
     let finalReasoning: string | undefined;
+    let doneCheckpoint: {
+      status: string;
+      strategySummary: string;
+      checklist: Record<string, boolean>;
+      confidence: string;
+      nextTurnPriority?: string;
+    } | undefined;
 
     try {
       // Build the system prompt
@@ -329,7 +402,21 @@ Available Actions:
 - fortify: Move troops between your territories (FORTIFY phase, ONE move per turn)
 - query_history: Ask about historical events (you only know events up to ${gameDate.getFullYear()})
 - send_negotiation: Send a diplomatic message to another nation
+- done: Validate your strategy (ATTACK/FORTIFY phase only, REQUIRED before end_turn)
 - end_turn: End your turn (ATTACK or FORTIFY phase)`}
+
+IMPORTANT WORKFLOW: Before ending your turn, follow this sequence:
+1. Complete all reinforcements (REINFORCE phase)
+2. Make your attacks (ATTACK phase)
+3. Fortify if desired (FORTIFY phase)
+4. Call 'done' to validate your strategy (only works in ATTACK or FORTIFY phase)
+5. Call 'end_turn' to finish
+
+The done checkpoint ensures quality decision-making by having you:
+- Summarize what you accomplished this turn
+- Complete an honest self-assessment checklist
+- Indicate your confidence level
+- Plan your priority for next turn
 
 Think strategically. Follow Risk rules: reinforce first, then attack, then fortify.
 `;
@@ -541,6 +628,72 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
                 break;
               }
 
+              case "done": {
+                // Phase validation: done can only be called during ATTACK or FORTIFY phases
+                const currentGameState = await ctx.runQuery(api.games.get, { id: args.gameId });
+                const currentPhase = currentGameState?.phase ?? "reinforce";
+
+                if (currentPhase !== "attack" && currentPhase !== "fortify") {
+                  toolResult = JSON.stringify({
+                    error: true,
+                    message: `Cannot call 'done' during ${currentPhase.toUpperCase()} phase. Complete reinforcements and attacks first, then call 'done' before ending your turn.`,
+                    hint: currentPhase === "reinforce"
+                      ? "Place all reinforcements first, then advance to ATTACK phase."
+                      : currentPhase === "setup"
+                        ? "Complete setup first using place_reinforcements and finish_setup."
+                        : "Advance to a later phase before validating your strategy.",
+                  });
+                  break;
+                }
+
+                // Store checkpoint data for activity completion
+                doneCheckpoint = {
+                  status: toolArgs.status,
+                  strategySummary: toolArgs.strategy_summary,
+                  checklist: toolArgs.checklist,
+                  confidence: toolArgs.confidence,
+                  nextTurnPriority: toolArgs.next_turn_priority,
+                };
+
+                // Log the checkpoint
+                await ctx.runMutation(api.agentStreaming.logDoneCheckpoint, {
+                  activityId,
+                  gameId: args.gameId,
+                  status: toolArgs.status,
+                  strategySummary: toolArgs.strategy_summary,
+                  checklist: toolArgs.checklist,
+                  confidence: toolArgs.confidence,
+                  nextTurnPriority: toolArgs.next_turn_priority,
+                });
+
+                // Log to game log as well
+                await ctx.runMutation(api.gameLog.add, {
+                  gameId: args.gameId,
+                  turn: game.currentTurn,
+                  playerId: args.playerId,
+                  action: "done_checkpoint",
+                  details: {
+                    status: toolArgs.status,
+                    confidence: toolArgs.confidence,
+                    checklist: toolArgs.checklist,
+                  },
+                });
+
+                // Return confirmation with quality feedback
+                const checklistItems = Object.entries(toolArgs.checklist);
+                const completedCount = checklistItems.filter(([, v]) => v).length;
+                const totalCount = checklistItems.length;
+
+                toolResult = JSON.stringify({
+                  confirmed: true,
+                  message: `Strategy checkpoint recorded. Quality score: ${completedCount}/${totalCount} checklist items completed.`,
+                  feedback: completedCount < 3
+                    ? "Consider consulting history and evaluating threats before ending turn."
+                    : "Good strategic coverage. You may now end your turn.",
+                });
+                break;
+              }
+
               case "end_turn": {
                 // First advance to next turn
                 const nextTurnResult = await ctx.runMutation(api.games.nextTurn, {
@@ -611,6 +764,7 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
         activityId,
         reasoning: finalReasoning,
         status: "completed",
+        doneBeforeEnd: !!doneCheckpoint,
       });
 
       return { success: true, iterations, activityId };
@@ -621,6 +775,7 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
         reasoning:
           error instanceof Error ? error.message : "Unknown error occurred",
         status: "error",
+        doneBeforeEnd: !!doneCheckpoint,
       });
       throw error;
     }

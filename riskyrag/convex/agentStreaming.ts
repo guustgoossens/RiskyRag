@@ -5,12 +5,14 @@ import { mutation, query } from "./_generated/server";
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   get_game_state: "Viewing current game state",
   place_reinforcements: "Placing reinforcements",
+  finish_setup: "Completing initial setup",
   advance_phase: "Advancing to next phase",
   attack_territory: "Attacking territory",
   confirm_conquest: "Confirming conquest",
   fortify: "Fortifying position",
   query_history: "Querying historical knowledge",
   send_negotiation: "Sending diplomatic message",
+  done: "Validating strategy checkpoint",
   end_turn: "Ending turn",
 };
 
@@ -148,6 +150,46 @@ export const logRagQuery = mutation({
 });
 
 /**
+ * Log the done checkpoint when agent validates its strategy
+ */
+export const logDoneCheckpoint = mutation({
+  args: {
+    activityId: v.id("agentActivity"),
+    gameId: v.id("games"),
+    status: v.string(),
+    strategySummary: v.string(),
+    checklist: v.object({
+      consulted_history: v.boolean(),
+      evaluated_threats: v.boolean(),
+      reinforced_weak_points: v.boolean(),
+      considered_diplomacy: v.boolean(),
+      maximized_attacks: v.boolean(),
+    }),
+    confidence: v.string(),
+    nextTurnPriority: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Calculate checklist score
+    const checklistItems = Object.values(args.checklist);
+    const checklistScore = checklistItems.filter((v) => v).length;
+
+    // Update activity with checkpoint data
+    await ctx.db.patch(args.activityId, {
+      doneCheckpoint: {
+        status: args.status,
+        strategySummary: args.strategySummary,
+        checklist: args.checklist,
+        confidence: args.confidence,
+        nextTurnPriority: args.nextTurnPriority,
+        checklistScore,
+      },
+    });
+
+    return { checklistScore, total: checklistItems.length };
+  },
+});
+
+/**
  * Complete an activity record when an AI finishes its turn
  */
 export const completeActivity = mutation({
@@ -157,6 +199,7 @@ export const completeActivity = mutation({
     status: v.optional(
       v.union(v.literal("completed"), v.literal("error"))
     ),
+    doneBeforeEnd: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.activityId, {
@@ -165,6 +208,7 @@ export const completeActivity = mutation({
       currentTool: undefined,
       currentToolDescription: undefined,
       reasoning: args.reasoning,
+      doneBeforeEnd: args.doneBeforeEnd,
     });
   },
 });

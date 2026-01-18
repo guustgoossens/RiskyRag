@@ -167,6 +167,24 @@ export default defineSchema({
     model: v.optional(v.string()),
     nation: v.optional(v.string()),
     gameDateTimestamp: v.optional(v.number()),
+    // Done checkpoint data (quality tracking)
+    doneCheckpoint: v.optional(
+      v.object({
+        status: v.string(),
+        strategySummary: v.string(),
+        checklist: v.object({
+          consulted_history: v.boolean(),
+          evaluated_threats: v.boolean(),
+          reinforced_weak_points: v.boolean(),
+          considered_diplomacy: v.boolean(),
+          maximized_attacks: v.boolean(),
+        }),
+        confidence: v.string(),
+        nextTurnPriority: v.optional(v.string()),
+        checklistScore: v.number(), // X out of 5
+      })
+    ),
+    doneBeforeEnd: v.optional(v.boolean()), // Did agent call done() before end_turn()?
   })
     .index("by_game_turn", ["gameId", "turn"])
     .index("by_game_player", ["gameId", "playerId"])
