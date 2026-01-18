@@ -59,7 +59,7 @@ const GAME_TOOLS = [
     function: {
       name: "place_reinforcements",
       description:
-        "Place reinforcement troops on your territories. Only available during REINFORCE phase. Must place all reinforcements before attacking.",
+        "Place troops on your territories. Available during SETUP phase (initial placement) and REINFORCE phase. Must place all troops before advancing.",
       parameters: {
         type: "object",
         properties: {
@@ -73,6 +73,19 @@ const GAME_TOOLS = [
           },
         },
         required: ["territory", "troops"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "finish_setup",
+      description:
+        "Finish placing initial troops and pass to the next player. Only available during SETUP phase when you have placed all your setup troops.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
       },
     },
   },
@@ -287,24 +300,36 @@ ${players
   .join("\n")}
 
 Current Phase: ${game.phase ?? "reinforce"}
+${game.phase === "setup" ? `Setup troops remaining: ${player.setupTroopsRemaining ?? 0}` : ""}
 ${game.reinforcementsRemaining ? `Reinforcements to place: ${game.reinforcementsRemaining}` : ""}
 ${game.pendingConquest ? `PENDING CONQUEST: You must move ${game.pendingConquest.minTroops}-${game.pendingConquest.maxTroops} troops to ${game.pendingConquest.toTerritory}` : ""}
 ${game.fortifyUsed ? "Fortify move already used this turn" : ""}
 
-Turn Phases (in order):
+${game.phase === "setup" ? `SETUP PHASE (Turn 0):
+You are placing your initial army. Distribute your ${player.setupTroopsRemaining ?? 0} remaining troops across your territories strategically.
+1. Use place_reinforcements to add troops to your territories
+2. When all troops are placed, use finish_setup to pass to the next player
+
+Available Actions (SETUP):
+- place_reinforcements: Place troops on your territory
+- finish_setup: Complete your setup (only when all troops are placed)
+- get_game_state: View the current map
+- query_history: Ask about historical events (you only know events up to ${gameDate.getFullYear()})
+- send_negotiation: Send a diplomatic message to another nation
+` : `Turn Phases (in order):
 1. REINFORCE: Place all reinforcement troops on your territories
 2. ATTACK: Attack enemy territories (optional, can attack multiple times)
 3. FORTIFY: Move troops between your territories (ONE move only, optional)
 
 Available Actions:
-- place_reinforcements: Place troops on your territory (REINFORCE phase only)
+- place_reinforcements: Place troops on your territory (REINFORCE phase)
 - advance_phase: Move to the next phase
 - attack_territory: Attack with 1-3 dice (ATTACK phase only, need dice+1 troops)
 - confirm_conquest: After conquering, choose how many troops to move in
 - fortify: Move troops between your territories (FORTIFY phase, ONE move per turn)
 - query_history: Ask about historical events (you only know events up to ${gameDate.getFullYear()})
 - send_negotiation: Send a diplomatic message to another nation
-- end_turn: End your turn (ATTACK or FORTIFY phase)
+- end_turn: End your turn (ATTACK or FORTIFY phase)`}
 
 Think strategically. Follow Risk rules: reinforce first, then attack, then fortify.
 `;
@@ -373,13 +398,42 @@ Think strategically. Follow Risk rules: reinforce first, then attack, then forti
               }
 
               case "place_reinforcements": {
-                const result = await ctx.runMutation(api.territories.reinforce, {
+                // Get current game to check phase
+                const currentGame = await ctx.runQuery(api.games.get, { id: args.gameId });
+
+                if (currentGame?.phase === "setup") {
+                  // During setup phase, use placeSetupTroop
+                  const result = await ctx.runMutation(api.territories.placeSetupTroop, {
+                    gameId: args.gameId,
+                    playerId: args.playerId,
+                    territory: toolArgs.territory,
+                    troops: toolArgs.troops,
+                  });
+                  toolResult = JSON.stringify(result);
+                } else {
+                  // During reinforce phase, use reinforce
+                  const result = await ctx.runMutation(api.territories.reinforce, {
+                    gameId: args.gameId,
+                    playerId: args.playerId,
+                    territory: toolArgs.territory,
+                    troops: toolArgs.troops,
+                  });
+                  toolResult = JSON.stringify(result);
+                }
+                break;
+              }
+
+              case "finish_setup": {
+                const result = await ctx.runMutation(api.territories.finishSetup, {
                   gameId: args.gameId,
                   playerId: args.playerId,
-                  territory: toolArgs.territory,
-                  troops: toolArgs.troops,
                 });
                 toolResult = JSON.stringify(result);
+
+                // If setup is complete and it's another player's turn, we're done
+                if (result.setupComplete || result.nextPlayerId !== args.playerId) {
+                  turnComplete = true;
+                }
                 break;
               }
 

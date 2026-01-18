@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { api } from "./_generated/api";
 import { REGION_BONUSES, type ScenarioId } from "./scenarios";
 
 // Roll N dice and return sorted descending
@@ -742,6 +743,15 @@ export const finishSetup = mutation({
         await ctx.db.patch(args.gameId, {
           currentPlayerId: nextPlayer._id,
         });
+
+        // If next player is AI, trigger their turn
+        if (!nextPlayer.isHuman) {
+          await ctx.scheduler.runAfter(0, api.agent.executeTurn, {
+            gameId: args.gameId,
+            playerId: nextPlayer._id,
+          });
+        }
+
         return {
           success: true,
           setupComplete: false,
@@ -778,6 +788,14 @@ export const finishSetup = mutation({
       details: { message: "All players have placed their initial troops" },
       timestamp: Date.now(),
     });
+
+    // If first player is AI, trigger their turn
+    if (!firstPlayer.isHuman) {
+      await ctx.scheduler.runAfter(0, api.agent.executeTurn, {
+        gameId: args.gameId,
+        playerId: firstPlayer._id,
+      });
+    }
 
     return {
       success: true,

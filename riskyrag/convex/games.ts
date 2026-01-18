@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { api } from "./_generated/api";
 import { SCENARIOS, type ScenarioId } from "./scenarios";
 
 // Create a new game
@@ -128,6 +129,14 @@ export const start = mutation({
         phase: "reinforce",
         reinforcementsRemaining: baseReinforcements,
         fortifyUsed: false,
+      });
+    }
+
+    // If first player is AI, trigger their turn
+    if (!firstPlayer.isHuman) {
+      await ctx.scheduler.runAfter(0, api.agent.executeTurn, {
+        gameId: args.gameId,
+        playerId: firstPlayer._id,
       });
     }
 
@@ -260,6 +269,14 @@ export const nextTurn = mutation({
       fortifyUsed: false,
       pendingConquest: undefined,
     });
+
+    // If next player is AI, trigger their turn
+    if (!nextPlayer.isHuman) {
+      await ctx.scheduler.runAfter(0, api.agent.executeTurn, {
+        gameId: args.gameId,
+        playerId: nextPlayer._id,
+      });
+    }
 
     return {
       success: true,
