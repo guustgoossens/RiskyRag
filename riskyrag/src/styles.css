@@ -1,12 +1,12 @@
+/* Google Fonts - MUST be first */
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @import "tailwindcss";
 
 /* ============================================
    RISKYRAG DESIGN SYSTEM
    "The Digital War Room" - Grand Strategy meets AI
    ============================================ */
-
-/* Google Fonts */
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* ============================================
    TAILWIND V4 THEME CONFIGURATION
@@ -23,11 +23,17 @@
   --color-war-crimson: #C0392B;
   --color-safe-emerald: #27AE60;
 
-  /* Faction Colors */
+  /* Faction Colors - 1453 Fall of Constantinople */
   --color-ottoman: #B91C1C;
   --color-byzantine: #7E22CE;
   --color-venetian: #0369A1;
   --color-neutral: #64748B;
+
+  /* Faction Colors - 1861 American Civil War */
+  --color-union: #1565C0;
+  --color-union-accent: #FFD700;
+  --color-confederacy: #6B7280;
+  --color-confederacy-accent: #DC2626;
 
   /* Opacity variants for overlays */
   --color-void-navy-80: rgba(15, 23, 42, 0.8);
@@ -239,6 +245,15 @@ code, pre, .font-mono {
   fill: rgba(100, 116, 139, 0.3);
 }
 
+/* Civil War Factions */
+.territory-union {
+  fill: rgba(21, 101, 192, 0.4);
+}
+
+.territory-confederacy {
+  fill: rgba(107, 114, 128, 0.4);
+}
+
 /* ============================================
    SCROLLBAR STYLING (War Room aesthetic)
    ============================================ */
@@ -286,4 +301,52 @@ code, pre, .font-mono {
   @apply outline-none ring-2 ring-offset-2;
   --tw-ring-color: var(--color-cognitive-teal);
   --tw-ring-offset-color: var(--color-void-navy);
+}
+
+/* ============================================
+   MAP ANIMATIONS - Civil War GraphMap
+   ============================================ */
+
+/* Animated dash for attack paths */
+@keyframes dash-march {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+.animate-dash {
+  animation: dash-march 0.5s linear infinite;
+}
+
+/* Capital crown animation */
+@keyframes crown-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+}
+
+.animate-crown {
+  animation: crown-pulse 2s ease-in-out infinite;
+}
+
+/* Territory pulse for valid targets */
+@keyframes territory-pulse {
+  0%, 100% {
+    stroke-opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    stroke-opacity: 0.5;
+    transform: scale(1.02);
+  }
+}
+
+.animate-territory-pulse {
+  animation: territory-pulse 1s ease-in-out infinite;
+  transform-origin: center;
 }

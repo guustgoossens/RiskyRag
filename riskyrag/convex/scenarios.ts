@@ -1,6 +1,22 @@
 // Historical scenario data for RiskyRag
 // These define the starting conditions for each scenario
 
+// Region bonus definitions per scenario
+export const REGION_BONUSES = {
+  "1453": {
+    Balkans: { total: 6, bonus: 3 },
+    Anatolia: { total: 2, bonus: 2 },
+    Thrace: { total: 2, bonus: 2 },
+  },
+  "1861": {
+    "Union Core": { total: 6, bonus: 5 },
+    "Confederate Core": { total: 6, bonus: 5 },
+    "Border States": { total: 3, bonus: 2 },
+    Western: { total: 3, bonus: 3 },
+    // Special: Mississippi River bonus (mississippi_valley + gulf_coast)
+  },
+} as const;
+
 export const SCENARIOS = {
   "1453": {
     name: "Fall of Constantinople",
@@ -178,6 +194,246 @@ Key strategic priorities:
 Remember: Genoa's power comes from trade and naval prowess, not territorial conquest.`,
       },
     ],
+  },
+  "1861": {
+    name: "American Civil War",
+    description:
+      "The Union fights to preserve the nation while the Confederacy battles for independence. Control of the Mississippi and the capitals will decide the war.",
+    startDate: new Date("1861-04-12").getTime(), // Fort Sumter
+    timeAdvancementMs: 14 * 24 * 60 * 60 * 1000, // 2 weeks per turn
+    territories: [
+      // Union Core
+      {
+        name: "new_england",
+        displayName: "New England",
+        region: "Union Core",
+        adjacentTo: ["new_york"],
+        position: { x: 700, y: 80 },
+      },
+      {
+        name: "new_york",
+        displayName: "New York",
+        region: "Union Core",
+        adjacentTo: ["new_england", "pennsylvania", "ohio_valley"],
+        position: { x: 620, y: 120 },
+      },
+      {
+        name: "pennsylvania",
+        displayName: "Pennsylvania",
+        region: "Union Core",
+        adjacentTo: ["new_york", "ohio_valley", "maryland", "west_virginia"],
+        position: { x: 540, y: 160 },
+      },
+      {
+        name: "ohio_valley",
+        displayName: "Ohio Valley",
+        region: "Union Core",
+        adjacentTo: ["new_york", "pennsylvania", "great_lakes", "kentucky"],
+        position: { x: 440, y: 140 },
+      },
+      {
+        name: "great_lakes",
+        displayName: "Great Lakes",
+        region: "Union Core",
+        adjacentTo: ["ohio_valley", "missouri"],
+        position: { x: 340, y: 100 },
+      },
+      {
+        name: "washington_dc",
+        displayName: "Washington D.C.",
+        region: "Union Core",
+        adjacentTo: ["maryland", "virginia"],
+        position: { x: 580, y: 220 },
+        isCapital: true,
+      },
+      // Border States
+      {
+        name: "maryland",
+        displayName: "Maryland",
+        region: "Border States",
+        adjacentTo: ["pennsylvania", "washington_dc", "virginia"],
+        position: { x: 600, y: 180 },
+      },
+      {
+        name: "west_virginia",
+        displayName: "West Virginia",
+        region: "Border States",
+        adjacentTo: ["pennsylvania", "virginia"],
+        position: { x: 480, y: 200 },
+      },
+      {
+        name: "kentucky",
+        displayName: "Kentucky",
+        region: "Border States",
+        adjacentTo: ["ohio_valley", "tennessee", "missouri"],
+        position: { x: 380, y: 220 },
+        isNeutral: true,
+      },
+      // Western
+      {
+        name: "missouri",
+        displayName: "Missouri",
+        region: "Western",
+        adjacentTo: ["great_lakes", "kentucky", "arkansas"],
+        position: { x: 260, y: 180 },
+      },
+      // Confederate Core
+      {
+        name: "virginia",
+        displayName: "Virginia",
+        region: "Confederate Core",
+        adjacentTo: [
+          "washington_dc",
+          "maryland",
+          "west_virginia",
+          "carolinas",
+          "tennessee",
+        ],
+        position: { x: 540, y: 280 },
+        isCapital: true,
+      },
+      {
+        name: "tennessee",
+        displayName: "Tennessee",
+        region: "Confederate Core",
+        adjacentTo: [
+          "virginia",
+          "kentucky",
+          "mississippi_valley",
+          "arkansas",
+          "carolinas",
+          "deep_south",
+        ],
+        position: { x: 380, y: 300 },
+      },
+      {
+        name: "carolinas",
+        displayName: "The Carolinas",
+        region: "Confederate Core",
+        adjacentTo: ["virginia", "tennessee", "deep_south"],
+        position: { x: 580, y: 340 },
+      },
+      {
+        name: "deep_south",
+        displayName: "Deep South",
+        region: "Confederate Core",
+        adjacentTo: ["carolinas", "tennessee", "gulf_coast", "mississippi_valley"],
+        position: { x: 480, y: 380 },
+      },
+      {
+        name: "gulf_coast",
+        displayName: "Gulf Coast",
+        region: "Confederate Core",
+        adjacentTo: ["deep_south", "texas", "mississippi_valley"],
+        position: { x: 380, y: 420 },
+      },
+      {
+        name: "mississippi_valley",
+        displayName: "Mississippi Valley",
+        region: "Western",
+        adjacentTo: ["tennessee", "deep_south", "gulf_coast", "arkansas"],
+        position: { x: 300, y: 360 },
+      },
+      {
+        name: "arkansas",
+        displayName: "Arkansas",
+        region: "Western",
+        adjacentTo: ["tennessee", "texas", "missouri", "mississippi_valley"],
+        position: { x: 260, y: 320 },
+      },
+      {
+        name: "texas",
+        displayName: "Texas",
+        region: "Confederate Core",
+        adjacentTo: ["gulf_coast", "arkansas"],
+        position: { x: 180, y: 400 },
+      },
+    ],
+    nations: [
+      {
+        name: "Union",
+        color: "#1565C0", // Navy Blue
+        accentColor: "#FFD700", // Gold
+        startTerritories: [
+          "new_england",
+          "new_york",
+          "pennsylvania",
+          "ohio_valley",
+          "great_lakes",
+          "washington_dc",
+          "maryland",
+          "west_virginia",
+          "missouri",
+        ],
+        startingTroops: {
+          new_england: 4,
+          new_york: 5,
+          pennsylvania: 6,
+          ohio_valley: 5,
+          great_lakes: 4,
+          washington_dc: 7,
+          maryland: 4,
+          west_virginia: 3,
+          missouri: 4,
+        },
+        isAI: true,
+        model: "gpt-4o",
+        systemPrompt: `You are President Abraham Lincoln leading the Union in 1861. Your primary objective is to preserve the United States and defeat the Confederate rebellion.
+
+Your advantages include industrial might, naval superiority, and a larger population. However, the Confederacy has skilled generals and the advantage of fighting on home territory.
+
+Key strategic priorities:
+1. Defend Washington D.C. at all costs - the capital must not fall
+2. Control the Mississippi River to split the Confederacy
+3. Capture Richmond, the Confederate capital
+4. Prevent European recognition of the Confederacy
+
+Remember: You do NOT know events after 1861. You are uncertain whether the war will be short or long.`,
+      },
+      {
+        name: "Confederacy",
+        color: "#6B7280", // Gray
+        accentColor: "#DC2626", // Battle Red
+        startTerritories: [
+          "virginia",
+          "tennessee",
+          "carolinas",
+          "deep_south",
+          "gulf_coast",
+          "mississippi_valley",
+          "arkansas",
+          "texas",
+        ],
+        startingTroops: {
+          virginia: 8,
+          tennessee: 5,
+          carolinas: 5,
+          deep_south: 6,
+          gulf_coast: 4,
+          mississippi_valley: 5,
+          arkansas: 3,
+          texas: 3,
+        },
+        isAI: true,
+        model: "gpt-4o",
+        systemPrompt: `You are President Jefferson Davis leading the Confederate States of America in 1861. Your objective is to defend Southern independence and force the Union to recognize the Confederacy.
+
+Your advantages include superior military leadership, interior lines of defense, and fighting for your homeland. However, the Union has industrial superiority and a larger population.
+
+Key strategic priorities:
+1. Defend Richmond, Virginia - the Confederate capital
+2. Threaten Washington D.C. to demoralize the North
+3. Hold the Mississippi River to maintain territorial integrity
+4. Seek European recognition and support
+
+Remember: You do NOT know events after 1861. You believe the war will be short and the South will prevail.`,
+      },
+    ],
+    // Kentucky starts neutral - first to attack claims it
+    neutralTerritories: ["kentucky"],
+    neutralTroops: {
+      kentucky: 3,
+    },
   },
 } as const;
 

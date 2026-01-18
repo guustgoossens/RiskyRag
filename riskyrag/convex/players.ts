@@ -140,7 +140,10 @@ export const eliminate = mutation({
 
 // Initialize all players and territories for a game
 export const initializeGame = mutation({
-  args: { gameId: v.id("games") },
+  args: {
+    gameId: v.id("games"),
+    aiModels: v.optional(v.record(v.string(), v.string())), // nation -> model override
+  },
   handler: async (ctx, args) => {
     const game = await ctx.db.get(args.gameId);
     if (!game) {
@@ -167,11 +170,13 @@ export const initializeGame = mutation({
 
     for (const nation of scenario.nations) {
       if (!takenNations.has(nation.name)) {
+        // Use model from aiModels override if provided, otherwise fall back to scenario default
+        const modelOverride = args.aiModels?.[nation.name];
         const playerId = await ctx.db.insert("players", {
           gameId: args.gameId,
           isHuman: false,
           nation: nation.name,
-          model: nation.model,
+          model: modelOverride ?? nation.model,
           color: nation.color,
           isEliminated: false,
           joinedAt: Date.now(),
@@ -186,16 +191,30 @@ export const initializeGame = mutation({
       let ownerId: string | undefined;
       let troops = 1;
 
-      for (const nation of scenario.nations) {
-        // Use Array.from to handle readonly arrays
-        const startTerritories = Array.from(nation.startTerritories);
-        if (startTerritories.includes(territory.name)) {
-          ownerId = playerMap[nation.name];
-          troops =
-            nation.startingTroops[
-              territory.name as keyof typeof nation.startingTroops
-            ] ?? 1;
-          break;
+      // Check if territory is neutral (only for scenarios that have neutralTerritories)
+      const neutralTerritories =
+        "neutralTerritories" in scenario
+          ? (scenario as { neutralTerritories: readonly string[] }).neutralTerritories
+          : [];
+      const neutralTroops =
+        "neutralTroops" in scenario
+          ? (scenario as { neutralTroops: Record<string, number> }).neutralTroops
+          : {};
+
+      if (neutralTerritories.includes(territory.name)) {
+        // Neutral territory - no owner
+        ownerId = undefined;
+        troops = neutralTroops[territory.name] ?? 3;
+      } else {
+        // Find which nation owns this territory
+        for (const nation of scenario.nations) {
+          const startTerritories = Array.from(nation.startTerritories) as string[];
+          if (startTerritories.includes(territory.name)) {
+            ownerId = playerMap[nation.name];
+            const startingTroops = nation.startingTroops as Record<string, number>;
+            troops = startingTroops[territory.name] ?? 1;
+            break;
+          }
         }
       }
 

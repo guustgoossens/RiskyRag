@@ -15,6 +15,7 @@ import {
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id, Doc } from "../../../convex/_generated/dataModel";
+import { GraphMap } from "../map/GraphMap";
 
 // --- Design System Constants ---
 const COLORS = {
@@ -22,6 +23,8 @@ const COLORS = {
   byzantine: { bg: "fill-purple-900", text: "text-purple-400", border: "stroke-purple-500" },
   venice: { bg: "fill-blue-900", text: "text-blue-400", border: "stroke-blue-500" },
   genoa: { bg: "fill-red-900", text: "text-red-400", border: "stroke-red-500" },
+  union: { bg: "fill-blue-800", text: "text-blue-400", border: "stroke-blue-500" },
+  confederacy: { bg: "fill-gray-700", text: "text-gray-400", border: "stroke-gray-500" },
   neutral: { bg: "fill-slate-800", text: "text-slate-400", border: "stroke-slate-600" },
 };
 
@@ -31,6 +34,8 @@ const NATION_COLORS: Record<string, keyof typeof COLORS> = {
   "Byzantine Empire": "byzantine",
   "Venice": "venice",
   "Genoa": "genoa",
+  "Union": "union",
+  "Confederacy": "confederacy",
 };
 
 // --- Types ---
@@ -284,40 +289,62 @@ function SystemLog({ logs }: { logs: LogEntry[] }) {
   );
 }
 
+// --- Attack Dialog State ---
+interface AttackDialogState {
+  isOpen: boolean;
+  sourceTerritory: Doc<"territories"> | null;
+  targetTerritory: Doc<"territories"> | null;
+  selectedDice: number;
+}
+
+// --- Conquest Dialog State ---
+interface ConquestDialogState {
+  isOpen: boolean;
+  minTroops: number;
+  maxTroops: number;
+  selectedTroops: number;
+  fromName: string;
+  toName: string;
+}
+
 // --- Main Game Component ---
 export default function RiskyRagGame() {
   // Get gameId from route params
   const { gameId } = useParams({ from: "/game/$gameId" });
 
-  // Local state
-  const [phase, setPhase] = useState<"REINFORCE" | "ATTACK" | "FORTIFY">("REINFORCE");
+  // Local UI state (not game logic state)
   const [selectedTerritory, setSelectedTerritory] = useState<Id<"territories"> | null>(null);
   const [attackSource, setAttackSource] = useState<Id<"territories"> | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [reinforcementsLeft, setReinforcementsLeft] = useState(0);
+
+  // Attack dialog state
+  const [attackDialog, setAttackDialog] = useState<AttackDialogState>({
+    isOpen: false,
+    sourceTerritory: null,
+    targetTerritory: null,
+    selectedDice: 3,
+  });
+
+  // Conquest dialog state
+  const [conquestDialog, setConquestDialog] = useState<ConquestDialogState>({
+    isOpen: false,
+    minTroops: 1,
+    maxTroops: 1,
+    selectedTroops: 1,
+    fromName: "",
+    toName: "",
+  });
 
   // Convex queries
   const gameState = useQuery(api.games.getFullState, { gameId: gameId as Id<"games"> });
 
   // Convex mutations
   const attackTerritory = useMutation(api.territories.attack);
+  const confirmConquestMutation = useMutation(api.territories.confirmConquest);
   const moveTroops = useMutation(api.territories.moveTroops);
   const reinforceTerritory = useMutation(api.territories.reinforce);
+  const advancePhase = useMutation(api.games.advancePhase);
   const nextTurn = useMutation(api.games.nextTurn);
-
-  // Convex queries for reinforcements
-  const currentPlayer = gameState?.players.find((p) => p._id === gameState?.game?.currentPlayerId);
-  const reinforcements = useQuery(
-    api.territories.calculateReinforcements,
-    currentPlayer ? { playerId: currentPlayer._id } : "skip"
-  );
-
-  // Initialize reinforcements when turn starts
-  useEffect(() => {
-    if (reinforcements && phase === "REINFORCE") {
-      setReinforcementsLeft(reinforcements.total);
-    }
-  }, [reinforcements?.total, phase]);
 
   // Log helper
   const addLog = (message: string, color = "text-slate-300") => {
@@ -343,12 +370,38 @@ export default function RiskyRagGame() {
   }
 
   const { game, players, territories } = gameState;
-  const myPlayer = players.find((p) => p.isHuman);
-  const isMyTurn = myPlayer && game.currentPlayerId === myPlayer._id;
+  // Hotseat mode: control whichever player's turn it is
+  const myPlayer = players.find((p) => p._id === game.currentPlayerId);
+  const isMyTurn = !!myPlayer; // Always true for current player in hotseat mode
+
+  // Get phase from backend (uppercase for display compatibility)
+  const phase = (game.phase ?? "reinforce").toUpperCase() as "REINFORCE" | "ATTACK" | "FORTIFY";
+  const reinforcementsLeft = game.reinforcementsRemaining ?? 0;
+  const hasPendingConquest = !!game.pendingConquest;
+
+  // Show conquest dialog when there's a pending conquest
+  useEffect(() => {
+    if (game.pendingConquest && !conquestDialog.isOpen) {
+      setConquestDialog({
+        isOpen: true,
+        minTroops: game.pendingConquest.minTroops,
+        maxTroops: game.pendingConquest.maxTroops,
+        selectedTroops: game.pendingConquest.minTroops,
+        fromName: game.pendingConquest.fromTerritory,
+        toName: game.pendingConquest.toTerritory,
+      });
+    } else if (!game.pendingConquest && conquestDialog.isOpen) {
+      setConquestDialog((prev) => ({ ...prev, isOpen: false }));
+    }
+  }, [game.pendingConquest, conquestDialog.isOpen]);
 
   // Handle territory click
   const handleTerritoryClick = async (territoryId: Id<"territories">) => {
     if (!isMyTurn || !myPlayer) return;
+    if (hasPendingConquest) {
+      addLog("Must confirm conquest first!", "text-yellow-500");
+      return;
+    }
 
     const territory = territories.find((t) => t._id === territoryId);
     if (!territory) return;
@@ -364,7 +417,6 @@ export default function RiskyRagGame() {
             territory: territory.name,
             troops: 1,
           });
-          setReinforcementsLeft((prev) => prev - 1);
           addLog(`Deployed 1 troop to ${territory.displayName}`, "text-blue-400");
         } catch (err) {
           addLog(`Failed to reinforce: ${err}`, "text-red-400");
@@ -383,27 +435,16 @@ export default function RiskyRagGame() {
           setAttackSource(null);
           setSelectedTerritory(null);
         } else {
-          // Attempt attack
+          // Show attack dialog for dice selection
           const sourceTerritory = territories.find((t) => t._id === attackSource);
           if (sourceTerritory && sourceTerritory.adjacentTo.includes(territory.name) && !isOwner) {
-            try {
-              const result = await attackTerritory({
-                gameId: game._id,
-                playerId: myPlayer._id,
-                fromTerritory: sourceTerritory.name,
-                toTerritory: territory.name,
-                attackingTroops: Math.min(sourceTerritory.troops - 1, 3),
-              });
-              if (result.conquered) {
-                addLog(`Conquered ${territory.displayName}!`, "text-green-400");
-              } else {
-                addLog(`Attack failed. Lost ${result.attackerLosses} troops.`, "text-red-400");
-              }
-            } catch (err) {
-              addLog(`Attack error: ${err}`, "text-red-400");
-            }
-            setAttackSource(null);
-            setSelectedTerritory(null);
+            const maxDice = Math.min(3, sourceTerritory.troops - 1);
+            setAttackDialog({
+              isOpen: true,
+              sourceTerritory,
+              targetTerritory: territory,
+              selectedDice: maxDice,
+            });
           } else if (isOwner && territory.troops > 1) {
             // Change source
             setAttackSource(territoryId);
@@ -412,6 +453,10 @@ export default function RiskyRagGame() {
         }
       }
     } else if (phase === "FORTIFY") {
+      if (game.fortifyUsed) {
+        addLog("Already used fortify move this turn!", "text-yellow-500");
+        return;
+      }
       if (!selectedTerritory) {
         if (isOwner && territory.troops > 1) {
           setSelectedTerritory(territoryId);
@@ -432,8 +477,6 @@ export default function RiskyRagGame() {
                 count: 1,
               });
               addLog(`Moved 1 troop to ${territory.displayName}`, "text-blue-400");
-              // End turn after fortify
-              await handleEndTurn();
             } catch (err) {
               addLog(`Move error: ${err}`, "text-red-400");
             }
@@ -444,34 +487,103 @@ export default function RiskyRagGame() {
     }
   };
 
-  // Handle phase transitions
-  const handleNextPhase = () => {
-    if (phase === "REINFORCE") {
-      if (reinforcementsLeft > 0) {
-        addLog("Must deploy all reinforcements first!", "text-yellow-500");
-        return;
+  // Execute attack with selected dice
+  const handleExecuteAttack = async () => {
+    if (!attackDialog.sourceTerritory || !attackDialog.targetTerritory || !myPlayer) return;
+
+    try {
+      const result = await attackTerritory({
+        gameId: game._id,
+        playerId: myPlayer._id,
+        fromTerritory: attackDialog.sourceTerritory.name,
+        toTerritory: attackDialog.targetTerritory.name,
+        diceCount: attackDialog.selectedDice,
+      });
+
+      const diceStr = `[${result.attackerDice?.join(", ")}] vs [${result.defenderDice?.join(", ")}]`;
+
+      if (result.conquered) {
+        addLog(`CONQUERED ${attackDialog.targetTerritory.displayName}! ${diceStr}`, "text-green-400");
+        // Conquest dialog will open automatically via useEffect
+      } else {
+        addLog(
+          `Attack on ${attackDialog.targetTerritory.displayName}: Lost ${result.attackerLosses}, dealt ${result.defenderLosses}. ${diceStr}`,
+          result.attackerLosses > result.defenderLosses ? "text-red-400" : "text-yellow-400"
+        );
       }
-      setPhase("ATTACK");
-      addLog("Phase: ATTACK", "text-blue-300");
+    } catch (err) {
+      addLog(`Attack error: ${err}`, "text-red-400");
+    }
+
+    setAttackDialog({ isOpen: false, sourceTerritory: null, targetTerritory: null, selectedDice: 3 });
+    setAttackSource(null);
+    setSelectedTerritory(null);
+  };
+
+  // Confirm conquest with selected troops
+  const handleConfirmConquest = async () => {
+    if (!myPlayer) return;
+
+    try {
+      const result = await confirmConquestMutation({
+        gameId: game._id,
+        playerId: myPlayer._id,
+        troopsToMove: conquestDialog.selectedTroops,
+      });
+      addLog(`Moved ${result.troopsMoved} troops to ${conquestDialog.toName}`, "text-blue-400");
+
+      if (result.gameOver) {
+        addLog(`VICTORY! You control ${result.territoriesControlled}/${result.totalTerritories} territories!`, "text-yellow-400");
+      }
+    } catch (err) {
+      addLog(`Conquest error: ${err}`, "text-red-400");
+    }
+  };
+
+  // Handle phase transitions using backend mutation
+  const handleNextPhase = async () => {
+    if (!myPlayer) return;
+
+    if (hasPendingConquest) {
+      addLog("Must confirm conquest first!", "text-yellow-500");
+      return;
+    }
+
+    if (phase === "FORTIFY") {
+      await handleEndTurn();
+      return;
+    }
+
+    try {
+      const result = await advancePhase({
+        gameId: game._id,
+        playerId: myPlayer._id,
+      });
+      addLog(`Phase: ${result.newPhase?.toUpperCase()}`, "text-blue-300");
       setSelectedTerritory(null);
-    } else if (phase === "ATTACK") {
-      setPhase("FORTIFY");
-      addLog("Phase: FORTIFY", "text-blue-300");
       setAttackSource(null);
-      setSelectedTerritory(null);
-    } else {
-      handleEndTurn();
+    } catch (err) {
+      addLog(`Cannot advance phase: ${err}`, "text-yellow-500");
     }
   };
 
   // End turn
   const handleEndTurn = async () => {
+    if (hasPendingConquest) {
+      addLog("Must confirm conquest first!", "text-yellow-500");
+      return;
+    }
+
     try {
-      await nextTurn({ gameId: game._id });
-      setPhase("REINFORCE");
+      const result = await nextTurn({ gameId: game._id });
       setSelectedTerritory(null);
       setAttackSource(null);
-      addLog("Turn ended", "text-slate-400");
+
+      if (result.gameOver) {
+        addLog(`GAME OVER! Winner determined.`, "text-yellow-400");
+      } else {
+        addLog(`Turn ended. Next player gets ${result.reinforcements} reinforcements.`, "text-slate-400");
+      }
     } catch (err) {
       addLog(`Error ending turn: ${err}`, "text-red-400");
     }
@@ -525,7 +637,7 @@ export default function RiskyRagGame() {
           <Button
             variant={phase === "ATTACK" ? "danger" : "primary"}
             onClick={handleNextPhase}
-            disabled={!isMyTurn || (phase === "REINFORCE" && reinforcementsLeft > 0)}
+            disabled={!isMyTurn || hasPendingConquest || (phase === "REINFORCE" && reinforcementsLeft > 0)}
           >
             {phase === "FORTIFY" ? "End Turn" : "Next Phase"} <ChevronRight size={16} />
           </Button>
@@ -555,11 +667,12 @@ export default function RiskyRagGame() {
             </ul>
           </div>
 
-          {!isMyTurn && (
-            <div className="mt-4 p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
-              <div className="flex items-center gap-2 text-yellow-400 text-sm">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Waiting for {currentPlayer?.nation}...</span>
+          {/* Hotseat mode indicator */}
+          {myPlayer && (
+            <div className="mt-4 p-4 bg-emerald-900/20 border border-emerald-500/30 rounded-lg">
+              <div className="flex items-center gap-2 text-emerald-400 text-sm">
+                <User className="w-4 h-4" />
+                <span>Playing as <strong>{myPlayer.nation}</strong></span>
               </div>
             </div>
           )}
@@ -577,13 +690,24 @@ export default function RiskyRagGame() {
           />
 
           <div className="flex-1 flex items-center justify-center p-8">
-            <GameMap
-              territories={territories}
-              players={players}
-              onTerritoryClick={handleTerritoryClick}
-              selectedTerritory={selectedTerritory}
-              attackSource={attackSource}
-            />
+            {game.scenario === "1861" ? (
+              <GraphMap
+                territories={territories}
+                players={players}
+                onTerritoryClick={handleTerritoryClick}
+                selectedTerritory={selectedTerritory}
+                attackSource={attackSource}
+                scenario={game.scenario}
+              />
+            ) : (
+              <GameMap
+                territories={territories}
+                players={players}
+                onTerritoryClick={handleTerritoryClick}
+                selectedTerritory={selectedTerritory}
+                attackSource={attackSource}
+              />
+            )}
           </div>
 
           {/* Bottom Log */}
@@ -592,6 +716,146 @@ export default function RiskyRagGame() {
           </div>
         </main>
       </div>
+
+      {/* Attack Dialog - Dice Selection */}
+      {attackDialog.isOpen && attackDialog.sourceTerritory && attackDialog.targetTerritory && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 w-96 shadow-2xl">
+            <h3 className="text-xl font-cinzel font-bold text-[#D4AF37] mb-4">Attack!</h3>
+            <div className="mb-4">
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-slate-400">From:</span>
+                <span className="text-white font-bold">{attackDialog.sourceTerritory.displayName}</span>
+              </div>
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-slate-400">To:</span>
+                <span className="text-red-400 font-bold">{attackDialog.targetTerritory.displayName}</span>
+              </div>
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-slate-400">Your Troops:</span>
+                <span className="text-white">{attackDialog.sourceTerritory.troops}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-400">Enemy Troops:</span>
+                <span className="text-red-400">{attackDialog.targetTerritory.troops}</span>
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <label className="text-sm text-slate-400 block mb-2">Select Dice to Roll (1-3):</label>
+              <div className="flex gap-2">
+                {[1, 2, 3].map((dice) => {
+                  const maxDice = Math.min(3, attackDialog.sourceTerritory!.troops - 1);
+                  const isDisabled = dice > maxDice;
+                  return (
+                    <button
+                      key={dice}
+                      disabled={isDisabled}
+                      onClick={() => setAttackDialog((prev) => ({ ...prev, selectedDice: dice }))}
+                      className={`flex-1 py-3 rounded font-bold text-lg transition-all ${
+                        attackDialog.selectedDice === dice
+                          ? "bg-red-600 text-white"
+                          : isDisabled
+                            ? "bg-slate-800 text-slate-600 cursor-not-allowed"
+                            : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                      }`}
+                    >
+                      {dice} 🎲
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-slate-500 mt-2">
+                Need at least {attackDialog.selectedDice + 1} troops to roll {attackDialog.selectedDice} dice
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                variant="neutral"
+                onClick={() => {
+                  setAttackDialog({ isOpen: false, sourceTerritory: null, targetTerritory: null, selectedDice: 3 });
+                  setAttackSource(null);
+                  setSelectedTerritory(null);
+                }}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button variant="danger" onClick={handleExecuteAttack} className="flex-1">
+                Attack!
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Conquest Dialog - Troop Selection */}
+      {conquestDialog.isOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-slate-900 border border-[#00FFA3]/50 rounded-lg p-6 w-96 shadow-2xl">
+            <h3 className="text-xl font-cinzel font-bold text-[#00FFA3] mb-4">Territory Conquered!</h3>
+            <div className="mb-4">
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-slate-400">From:</span>
+                <span className="text-white font-bold">{conquestDialog.fromName}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-400">To:</span>
+                <span className="text-[#00FFA3] font-bold">{conquestDialog.toName}</span>
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <label className="text-sm text-slate-400 block mb-2">
+                Troops to Move ({conquestDialog.minTroops} - {conquestDialog.maxTroops}):
+              </label>
+              <input
+                type="range"
+                min={conquestDialog.minTroops}
+                max={conquestDialog.maxTroops}
+                value={conquestDialog.selectedTroops}
+                onChange={(e) =>
+                  setConquestDialog((prev) => ({ ...prev, selectedTroops: parseInt(e.target.value) }))
+                }
+                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[#00FFA3]"
+              />
+              <div className="flex justify-between text-xs text-slate-500 mt-1">
+                <span>Min: {conquestDialog.minTroops}</span>
+                <span className="text-2xl font-bold text-[#00FFA3]">{conquestDialog.selectedTroops}</span>
+                <span>Max: {conquestDialog.maxTroops}</span>
+              </div>
+            </div>
+
+            <Button variant="success" onClick={handleConfirmConquest} className="w-full">
+              Confirm Move
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Pending Conquest Indicator */}
+      {hasPendingConquest && !conquestDialog.isOpen && (
+        <div className="fixed bottom-24 right-4 bg-yellow-500/20 border border-yellow-500 rounded-lg p-4 z-40">
+          <p className="text-yellow-400 font-bold">Pending Conquest!</p>
+          <p className="text-xs text-slate-400">You must confirm troop movement.</p>
+        </div>
+      )}
+
+      {/* Game Over Overlay */}
+      {game.status === "finished" && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+          <div className="bg-slate-900 border-2 border-[#D4AF37] rounded-lg p-8 text-center max-w-md">
+            <h2 className="text-3xl font-cinzel font-bold text-[#D4AF37] mb-4">VICTORY!</h2>
+            <p className="text-slate-300 mb-6">
+              {players.find((p) => p._id === game.winnerId)?.nation} has achieved dominance!
+            </p>
+            <Link to="/lobby">
+              <Button variant="primary">Return to Lobby</Button>
+            </Link>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

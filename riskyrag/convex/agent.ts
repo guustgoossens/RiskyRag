@@ -45,7 +45,42 @@ const GAME_TOOLS = [
     function: {
       name: "get_game_state",
       description:
-        "Get the current map showing your territories, troop counts, and visible enemy positions",
+        "Get the current map showing your territories, troop counts, phase, and visible enemy positions",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "place_reinforcements",
+      description:
+        "Place reinforcement troops on your territories. Only available during REINFORCE phase. Must place all reinforcements before attacking.",
+      parameters: {
+        type: "object",
+        properties: {
+          territory: {
+            type: "string",
+            description: "Your territory name to reinforce",
+          },
+          troops: {
+            type: "number",
+            description: "Number of troops to place (cannot exceed remaining reinforcements)",
+          },
+        },
+        required: ["territory", "troops"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "advance_phase",
+      description:
+        "Move to the next phase. REINFORCE → ATTACK → FORTIFY. Must place all reinforcements before advancing from reinforce phase.",
       parameters: {
         type: "object",
         properties: {},
@@ -57,7 +92,8 @@ const GAME_TOOLS = [
     type: "function" as const,
     function: {
       name: "attack_territory",
-      description: "Attack an adjacent enemy territory with your troops",
+      description:
+        "Attack an adjacent enemy territory. Only available during ATTACK phase. You roll 1-3 dice (need at least dice+1 troops). If you conquer, you must confirm how many troops to move.",
       parameters: {
         type: "object",
         properties: {
@@ -69,26 +105,45 @@ const GAME_TOOLS = [
             type: "string",
             description: "Enemy territory name to attack",
           },
-          troops: {
+          dice: {
             type: "number",
-            description: "Number of troops to attack with (must leave at least 1)",
+            description: "Number of dice to roll (1, 2, or 3). Need at least dice+1 troops in territory.",
           },
         },
-        required: ["from", "to", "troops"],
+        required: ["from", "to", "dice"],
       },
     },
   },
   {
     type: "function" as const,
     function: {
-      name: "move_troops",
-      description: "Move troops between your own connected territories",
+      name: "confirm_conquest",
+      description:
+        "After conquering a territory, confirm how many troops to move into it. Must move at least the dice rolled, max is all but 1.",
+      parameters: {
+        type: "object",
+        properties: {
+          troops: {
+            type: "number",
+            description: "Number of troops to move into conquered territory",
+          },
+        },
+        required: ["troops"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "fortify",
+      description:
+        "Move troops between your own adjacent territories. Only available during FORTIFY phase. You get ONE fortify move per turn.",
       parameters: {
         type: "object",
         properties: {
           from: { type: "string", description: "Source territory name" },
           to: { type: "string", description: "Destination territory name" },
-          count: { type: "number", description: "Number of troops to move" },
+          count: { type: "number", description: "Number of troops to move (must leave at least 1)" },
         },
         required: ["from", "to", "count"],
       },
@@ -138,7 +193,7 @@ const GAME_TOOLS = [
     function: {
       name: "end_turn",
       description:
-        "Signal that your turn is complete. Call this when you are done with all actions.",
+        "End your turn. Available during ATTACK or FORTIFY phase. Cannot end turn if there is a pending conquest to confirm.",
       parameters: {
         type: "object",
         properties: {
@@ -217,14 +272,27 @@ ${players
   })
   .join("\n")}
 
+Current Phase: ${game.phase ?? "reinforce"}
+${game.reinforcementsRemaining ? `Reinforcements to place: ${game.reinforcementsRemaining}` : ""}
+${game.pendingConquest ? `PENDING CONQUEST: You must move ${game.pendingConquest.minTroops}-${game.pendingConquest.maxTroops} troops to ${game.pendingConquest.toTerritory}` : ""}
+${game.fortifyUsed ? "Fortify move already used this turn" : ""}
+
+Turn Phases (in order):
+1. REINFORCE: Place all reinforcement troops on your territories
+2. ATTACK: Attack enemy territories (optional, can attack multiple times)
+3. FORTIFY: Move troops between your territories (ONE move only, optional)
+
 Available Actions:
-- attack_territory: Attack an adjacent enemy territory
-- move_troops: Move troops between your territories
+- place_reinforcements: Place troops on your territory (REINFORCE phase only)
+- advance_phase: Move to the next phase
+- attack_territory: Attack with 1-3 dice (ATTACK phase only, need dice+1 troops)
+- confirm_conquest: After conquering, choose how many troops to move in
+- fortify: Move troops between your territories (FORTIFY phase, ONE move per turn)
 - query_history: Ask about historical events (you only know events up to ${gameDate.getFullYear()})
 - send_negotiation: Send a diplomatic message to another nation
-- end_turn: End your turn (required to complete your turn)
+- end_turn: End your turn (ATTACK or FORTIFY phase)
 
-Think strategically about your next moves. Consider diplomacy, defense, and expansion.
+Think strategically. Follow Risk rules: reinforce first, then attack, then fortify.
 `;
 
     // Execute the AI turn with tool calling
@@ -273,19 +341,49 @@ Think strategically about your next moves. Consider diplomacy, defense, and expa
               break;
             }
 
+            case "place_reinforcements": {
+              const result = await ctx.runMutation(api.territories.reinforce, {
+                gameId: args.gameId,
+                playerId: args.playerId,
+                territory: toolArgs.territory,
+                troops: toolArgs.troops,
+              });
+              toolResult = JSON.stringify(result);
+              break;
+            }
+
+            case "advance_phase": {
+              const result = await ctx.runMutation(api.games.advancePhase, {
+                gameId: args.gameId,
+                playerId: args.playerId,
+              });
+              toolResult = JSON.stringify(result);
+              break;
+            }
+
             case "attack_territory": {
               const result = await ctx.runMutation(api.territories.attack, {
                 gameId: args.gameId,
                 playerId: args.playerId,
                 fromTerritory: toolArgs.from,
                 toTerritory: toolArgs.to,
-                attackingTroops: toolArgs.troops,
+                diceCount: toolArgs.dice,
               });
               toolResult = JSON.stringify(result);
               break;
             }
 
-            case "move_troops": {
+            case "confirm_conquest": {
+              const result = await ctx.runMutation(api.territories.confirmConquest, {
+                gameId: args.gameId,
+                playerId: args.playerId,
+                troopsToMove: toolArgs.troops,
+              });
+              toolResult = JSON.stringify(result);
+              break;
+            }
+
+            case "fortify": {
               const result = await ctx.runMutation(api.territories.moveTroops, {
                 gameId: args.gameId,
                 playerId: args.playerId,
@@ -335,6 +433,11 @@ Think strategically about your next moves. Consider diplomacy, defense, and expa
             }
 
             case "end_turn": {
+              // First advance to next turn
+              const nextTurnResult = await ctx.runMutation(api.games.nextTurn, {
+                gameId: args.gameId,
+              });
+
               // Log the turn end
               await ctx.runMutation(api.gameLog.add, {
                 gameId: args.gameId,
@@ -344,7 +447,7 @@ Think strategically about your next moves. Consider diplomacy, defense, and expa
                 details: { reasoning: toolArgs.reasoning },
               });
               turnComplete = true;
-              toolResult = "Turn ended successfully";
+              toolResult = JSON.stringify(nextTurnResult);
               break;
             }
 
